@@ -5,6 +5,7 @@ import FilterBar from "./FilterBar.vue";
 import type { WadEntry } from "../lib/schema";
 import { useDownload } from "../composables/useDownload";
 import { useSettings } from "../composables/useSettings";
+import { fetchImageDataUrl } from "../composables/useRemoteImage";
 import DownloadPlayButton from "./DownloadPlayButton.vue";
 import AddCustomTile from "./AddCustomTile.vue";
 
@@ -23,9 +24,29 @@ const emit = defineEmits<{
 const { isDownloaded: checkDownloaded } = useDownload();
 const { settings } = useSettings();
 
+const resolvedThumbnails = ref<Record<string, string>>({});
+const failedImages = ref<Set<string>>(new Set());
+
 function thumbnailFor(wad: WadEntry): string | null {
   if (wad.thumbnail) return wad.thumbnail;
   if (wad.screenshots.length > 0) return wad.screenshots[0].url;
+  return null;
+}
+
+function getThumbnail(wad: WadEntry): string | null {
+  if (resolvedThumbnails.value[wad.slug]) return resolvedThumbnails.value[wad.slug];
+  const raw = thumbnailFor(wad);
+  if (!raw) return null;
+  if (raw.startsWith("data:") || raw.startsWith("blob:")) {
+    return raw;
+  }
+  fetchImageDataUrl(raw).then((dataUrl) => {
+    if (dataUrl) {
+      resolvedThumbnails.value[wad.slug] = dataUrl;
+    } else {
+      failedImages.value.add(wad.slug);
+    }
+  });
   return null;
 }
 
@@ -116,10 +137,11 @@ const filteredWads = computed(() => {
           <!-- 16:9 thumbnail -->
           <div class="relative aspect-video overflow-hidden bg-zinc-900">
             <img
-              v-if="thumbnailFor(wad)"
-              :src="thumbnailFor(wad) ?? ''"
+              v-if="getThumbnail(wad) && !failedImages.has(wad.slug)"
+              :src="getThumbnail(wad) ?? ''"
               :alt="wad.title"
               class="absolute inset-0 w-full h-full object-cover"
+              @error="failedImages.add(wad.slug)"
             />
             <div
               v-else

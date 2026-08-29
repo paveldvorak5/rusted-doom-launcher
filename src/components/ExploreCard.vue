@@ -2,6 +2,7 @@
 import { ref, computed, onUnmounted } from "vue";
 import type { WadEntry } from "../lib/schema";
 import { useWadSummaries } from "../composables/useWadSummaries";
+import { useRemoteImage } from "../composables/useRemoteImage";
 import DownloadPlayButton from "./DownloadPlayButton.vue";
 import WadLinks from "./WadLinks.vue";
 
@@ -52,6 +53,8 @@ const currentImage = computed(() => {
   return allImages.value[currentImageIndex.value];
 });
 
+const { resolvedUrl: resolvedCurrentImage, markError: markImageError, isError: isImageError } = useRemoteImage(currentImage);
+
 function startSlideshow() {
   if (allImages.value.length <= 1) return;
   slideshowInterval = setInterval(() => {
@@ -90,13 +93,14 @@ const authorDisplay = computed(() => {
     >
       <!-- Screenshot/thumbnail with slideshow -->
       <img
-        v-if="currentImage"
-        :src="currentImage"
+        v-if="resolvedCurrentImage && !isImageError"
+        :src="resolvedCurrentImage"
         :alt="wad.title"
         class="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+        @error="markImageError"
       />
 
-      <!-- Fallback for no image -->
+      <!-- Fallback for no image or on load error -->
       <div
         v-else
         class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-red-900 to-zinc-900 px-4 text-center"

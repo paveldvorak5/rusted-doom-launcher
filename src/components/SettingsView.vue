@@ -5,7 +5,7 @@ import { open as openShell } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { mkdir } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
-import { Check, X } from "@lucide/vue";
+import { Check, X, Database } from "@lucide/vue";
 import { useSettings } from "../composables/useSettings";
 import { useGogImport } from "../composables/useGogImport";
 import { useGZDoom } from "../composables/useGZDoom";
@@ -21,6 +21,10 @@ const { availableIwads, detectIwads } = useGZDoom();
 const { wads } = useWads();
 const { iwadsDir } = useLibrary();
 const { registerOwnedExpansions } = useDownload();
+
+const emit = defineEmits<{
+  openDoomLauncherImport: [];
+}>();
 
 // IWADs required by games in the catalog
 const requiredIwads = computed<Iwad[]>(() => {
@@ -316,6 +320,27 @@ function getEngineName(path: string | null): string {
             @click="handleGOGButtonClick"
           >
             {{ gogImporting ? "Extracting..." : (hasInnoextract ? "Import" : "Check innoextract") }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Import from DoomLauncher -->
+      <div class="rounded-lg bg-zinc-800/50 p-4 border border-zinc-700/40">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="flex items-center gap-2">
+              <Database class="w-4 h-4 text-red-400" />
+              <label class="text-sm font-medium text-zinc-200">Import from DoomLauncher</label>
+            </div>
+            <p class="text-sm text-zinc-400 mt-1">
+              Import WADs, tags/categories, save files, and statistics from an existing <code class="text-zinc-300">DoomLauncher.sqlite</code> database with cross-platform path remapping.
+            </p>
+          </div>
+          <button
+            class="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 shrink-0 ml-4"
+            @click="emit('openDoomLauncherImport')"
+          >
+            Import Database
           </button>
         </div>
       </div>

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, useTemplateRef, watch } from "vue";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Tag, Plus, X } from "@lucide/vue";
 import { type WadEntry, type Iwad } from "../lib/schema";
 import { IWAD_PICKER_OPTIONS } from "../lib/constants";
 import { useDownload } from "../composables/useDownload";
 import { useSettings } from "../composables/useSettings";
+import { useCustomWads } from "../composables/useCustomWads";
 import { useCustomImport, discardPickedZip, type PickedZip } from "../composables/useCustomImport";
 import { type FileInspection } from "../lib/wadInspect";
 import { basenameOf } from "../lib/platform";
@@ -39,7 +41,22 @@ const TYPES: { value: WadEntry["type"]; label: string }[] = [
 
 const { getDownloadInfo } = useDownload();
 const { settings } = useSettings();
+const { customWads } = useCustomWads();
 const { inspectPick, importCustomWad, updateCustomEntry } = useCustomImport();
+
+const suggestedTags = computed(() => {
+  const set = new Set<string>();
+  for (const w of customWads.value) {
+    if (w.tags) {
+      for (const t of w.tags) {
+        if (!tags.value.includes(t)) {
+          set.add(t);
+        }
+      }
+    }
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+});
 
 const editing = computed(() => props.editWad != null);
 
@@ -53,6 +70,8 @@ const author = ref<string>("");
 const year = ref<number>(new Date().getFullYear());
 const entryType = ref<WadEntry["type"]>(props.defaultType);
 const iwad = ref<Iwad>("doom2");
+const tags = ref<string[]>([]);
+const tagInput = ref<string>("");
 const rows = ref<ArgRow[]>([]);
 const errorMsg = ref<string>("");
 const submitting = ref(false);
@@ -77,6 +96,18 @@ function handleKeyDown(e: KeyboardEvent) {
   if (e.key === "Escape" && pickerOpen.value) pickerOpen.value = false;
 }
 
+function addTag(tagText?: string) {
+  const t = (tagText ?? tagInput.value).trim();
+  if (t && !tags.value.includes(t)) {
+    tags.value.push(t);
+  }
+  tagInput.value = "";
+}
+
+function removeTag(tagToRemove: string) {
+  tags.value = tags.value.filter(t => t !== tagToRemove);
+}
+
 onMounted(() => {
   if (props.editWad) {
     const w = props.editWad;
@@ -96,6 +127,7 @@ onMounted(() => {
     year.value = w.year;
     entryType.value = w.type;
     iwad.value = w.iwad;
+    tags.value = [...(w.tags ?? [])];
     rows.value = rowsFromTokens(w.extraArgs);
   } else {
     sourcePath.value = "";
@@ -104,6 +136,7 @@ onMounted(() => {
     year.value = new Date().getFullYear();
     entryType.value = props.defaultType;
     iwad.value = "doom2";
+    tags.value = [];
     rows.value = [];
     copyToLibrary.value = true;
   }
@@ -290,6 +323,7 @@ async function onSubmit() {
       iwad: iwad.value,
       type: entryType.value,
       extraArgs: cleanedArgs.value,
+      tags: tags.value,
     };
     if (editing.value && props.editWad) {
       const updated = await updateCustomEntry(props.editWad, fields);
@@ -423,6 +457,63 @@ async function onSubmit() {
           >
             <path d="M3 4.5L6 7.5L9 4.5"/>
           </svg>
+        </div>
+      </div>
+
+      <!-- Tags / Categories -->
+      <div class="space-y-1.5">
+        <label class="text-sm font-medium text-zinc-300 flex items-center gap-1.5">
+          <Tag :size="14" class="text-zinc-400" />
+          <span>Tags & Categories</span>
+        </label>
+        <div class="space-y-2">
+          <div v-if="tags.length > 0" class="flex flex-wrap gap-1.5">
+            <span
+              v-for="t in tags"
+              :key="t"
+              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-zinc-800 text-zinc-200 border border-zinc-700"
+            >
+              {{ t }}
+              <button
+                type="button"
+                class="text-zinc-400 hover:text-zinc-100 ml-0.5"
+                @click="removeTag(t)"
+              >
+                <X :size="12" />
+              </button>
+            </span>
+          </div>
+          <div class="flex gap-2">
+            <input
+              v-model="tagInput"
+              type="text"
+              class="flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-red-600 focus:outline-none"
+              placeholder="Add tag (e.g. Slaughter, Cacoward, Favorites)..."
+              @keydown.enter.prevent="addTag()"
+            />
+            <button
+              type="button"
+              class="rounded bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700 transition-colors flex items-center gap-1"
+              @click="addTag()"
+            >
+              <Plus :size="14" />
+              Add
+            </button>
+          </div>
+
+          <!-- Existing Tag Suggestions -->
+          <div v-if="suggestedTags.length > 0" class="flex flex-wrap items-center gap-1.5 pt-1">
+            <span class="text-[11px] text-zinc-500">Suggestions:</span>
+            <button
+              v-for="sug in suggestedTags"
+              :key="sug"
+              type="button"
+              class="px-2 py-0.5 rounded text-[11px] bg-zinc-800/80 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 border border-zinc-700/60 transition-colors cursor-pointer"
+              @click="addTag(sug)"
+            >
+              + {{ sug }}
+            </button>
+          </div>
         </div>
       </div>
 

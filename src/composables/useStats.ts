@@ -11,6 +11,7 @@ import {
 import { parseSaveFile } from "../lib/saveParser";
 import { useLibrary } from "./useLibrary";
 import { useLevelNames } from "./useLevelNames";
+import { useGameplayLog, getLevelsVisited, type GameplayLog } from "./useGameplayLog";
 
 /** Aggregated level stats with skill from session. */
 export interface AggregatedLevel extends LevelPlayStats {
@@ -73,6 +74,7 @@ function generateSessionHash(session: Omit<PlaySession, "capturedAt">): string {
 export function useStats() {
   const { statsDir, savesDir } = useLibrary();
   const { getCachedLevelNames, loadLevelNames, mergeLevelNames } = useLevelNames();
+  const { loadAllGameplayLogs } = useGameplayLog();
 
   // Check if a session with this content hash already exists
   async function sessionHashExists(statsDir: string, hash: string): Promise<boolean> {
@@ -241,8 +243,8 @@ export function useStats() {
     return sessions;
   }
 
-  /** Build a WadPlaySummary from sessions (best-per-level aggregation). */
-  function buildSummary(slug: string, sessions: PlaySession[]): WadPlaySummary {
+  /** Build a WadPlaySummary from sessions and gameplay logs (best-per-level aggregation). */
+  function buildSummary(slug: string, sessions: PlaySession[], logs: GameplayLog[] = []): WadPlaySummary {
     // Best level stats per level+skill combo
     const bestByKey = new Map<string, AggregatedLevel>();
     for (const session of sessions) {
@@ -266,13 +268,22 @@ export function useStats() {
     });
 
     const uniqueLevels = new Set(levels.map(l => l.id));
-    const lastPlayed = sessions.length > 0
-      ? new Date(Math.max(...sessions.map(s => new Date(s.capturedAt).getTime())))
-      : null;
+    for (const log of logs) {
+      for (const mapId of getLevelsVisited(log)) {
+        uniqueLevels.add(mapId.toUpperCase());
+      }
+    }
+
+    const sessionTimestamps = sessions.map(s => new Date(s.capturedAt).getTime()).filter(t => !isNaN(t));
+    const logTimestamps = logs.map(l => new Date(l.endedAt || l.startedAt).getTime()).filter(t => !isNaN(t));
+    const allTimestamps = [...sessionTimestamps, ...logTimestamps];
+    const lastPlayed = allTimestamps.length > 0 ? new Date(Math.max(...allTimestamps)) : null;
+
+    const totalSessions = Math.max(sessions.length, logs.length);
 
     return {
       slug,
-      sessionCount: sessions.length,
+      sessionCount: totalSessions,
       mapsPlayed: uniqueLevels.size,
       lastPlayed,
       levels,
@@ -284,9 +295,12 @@ export function useStats() {
     if (summaryCache.value.has(slug)) {
       return summaryCache.value.get(slug)!;
     }
-    const sessions = await loadAllSessions(slug);
-    if (sessions.length === 0) return null;
-    const summary = buildSummary(slug, sessions);
+    const [sessions, logs] = await Promise.all([
+      loadAllSessions(slug),
+      loadAllGameplayLogs(slug),
+    ]);
+    if (sessions.length === 0 && logs.length === 0) return null;
+    const summary = buildSummary(slug, sessions, logs);
     summaryCache.value.set(slug, summary);
     return summary;
   }

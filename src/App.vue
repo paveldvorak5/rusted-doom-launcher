@@ -10,6 +10,7 @@ import GameplayLogView from "./components/GameplayLogView.vue";
 import SettingsView from "./components/SettingsView.vue";
 import AboutView from "./components/AboutView.vue";
 import CustomModView from "./components/CustomModView.vue";
+import DoomLauncherImportModal from "./components/DoomLauncherImportModal.vue";
 import { useWads } from "./composables/useWads";
 import { useGZDoom } from "./composables/useGZDoom";
 import { useDownload } from "./composables/useDownload";
@@ -65,7 +66,7 @@ const { loadState: loadDownloadState, downloadWithDeps, downloadWad, deleteWad, 
 const iwadEntries = computed<WadEntry[]>(() => availableIwads.value.map(synthIwadEntry));
 // Entries with no download URL (official expansions sourced from GOG
 // installers) only appear once their file is owned/imported.
-const obtainable = (w: WadEntry) => w.downloads.length > 0 || isDownloaded(w.slug);
+const obtainable = (w: WadEntry) => w.downloads.length > 0 || isDownloaded(w.slug) || w._source === "custom";
 const playableEntries = computed<WadEntry[]>(() =>
   [...iwadEntries.value, ...wads.value.filter(w => w.type !== "gameplay-mod" && w.type !== "resource-pack" && obtainable(w))]
 );
@@ -79,6 +80,13 @@ const { captureStats, loadAllPlaySummaries, refreshPlaySummary } = useStats();
 const activeView = ref<View>("main");
 const errorMsg = ref("");
 const exploreInitialQuery = ref("");
+const dlImportModalOpen = ref(false);
+
+async function handleDoomLauncherImported() {
+  await loadCustomWads();
+  await loadDownloadState();
+  await loadWadData(wads.value);
+}
 
 // Custom-mod importer: full-screen view, not a modal. We remember which view
 // the user came from so Cancel / submit returns there.
@@ -115,6 +123,7 @@ async function loadWadData(entries: WadEntry[]) {
   if (entries.length === 0) return;
   const slugs = entries.map(w => w.slug);
   await loadAllLevelNames(slugs);
+  await Promise.all(slugs.map(s => captureStats(s)));
   await loadAllPlaySummaries(slugs);
 }
 
@@ -152,8 +161,9 @@ watch(wads, async (newWads) => {
 // Refresh save info and capture stats when game closes
 watch(isRunning, async (running, wasRunning) => {
   if (wasRunning && !running && lastPlayedSlug.value) {
-    await refreshPlaySummary(lastPlayedSlug.value);
-    await captureStats(lastPlayedSlug.value);
+    const slug = lastPlayedSlug.value;
+    await captureStats(slug);
+    await refreshPlaySummary(slug);
   }
 });
 
@@ -275,6 +285,7 @@ async function handleDelete(wad: WadEntry) {
         @navigate="(view, query) => { activeView = view; exploreInitialQuery = query ?? ''; }"
         @add-custom="openCustomImporter"
         @edit="openCustomEditor"
+        @import-doom-launcher="dlImportModalOpen = true"
       />
       <ModsView
         v-else-if="activeView === 'mods'"
@@ -307,9 +318,19 @@ async function handleDelete(wad: WadEntry) {
         v-else-if="activeView === 'logs'"
         :wads="wads"
       />
-      <SettingsView v-else-if="activeView === 'settings'" />
+      <SettingsView
+        v-else-if="activeView === 'settings'"
+        @open-doom-launcher-import="dlImportModalOpen = true"
+      />
       <AboutView v-else-if="activeView === 'about'" />
     </main>
+
+    <!-- DoomLauncher Import Modal -->
+    <DoomLauncherImportModal
+      :open="dlImportModalOpen"
+      @close="dlImportModalOpen = false"
+      @imported="handleDoomLauncherImported"
+    />
 
     <!-- Game Running Indicator -->
     <div

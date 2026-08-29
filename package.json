@@ -8,6 +8,7 @@
     "bump-version": "node scripts/bump-version.js",
     "dev": "vite",
     "build": "pnpm gen:version && vue-tsc -b && vite build",
+    "build:app": "pnpm tauri build",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run src",

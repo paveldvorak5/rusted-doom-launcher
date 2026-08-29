@@ -5,9 +5,40 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{Emitter, Manager, State};
 
+pub mod doom_launcher;
 pub mod game_archives;
 pub mod gog_import;
+pub mod images;
 pub mod launcher_downloads;
+
+#[tauri::command]
+async fn fetch_remote_image(app: tauri::AppHandle, url: String) -> Result<String, String> {
+    images::fetch_remote_image(app, url).await
+}
+
+#[tauri::command]
+async fn inspect_doom_launcher_db(
+    db_path: String,
+) -> Result<doom_launcher::DoomLauncherInspection, String> {
+    doom_launcher::inspect_db(db_path)
+}
+
+#[tauri::command]
+async fn verify_doom_launcher_files(
+    db_path: String,
+    source_root: String,
+    target_root: String,
+) -> Result<doom_launcher::PathVerifyResult, String> {
+    doom_launcher::verify_files(db_path, &source_root, &target_root)
+}
+
+#[tauri::command]
+async fn execute_doom_launcher_import(
+    library_path: String,
+    options: doom_launcher::DoomLauncherImportOptions,
+) -> Result<doom_launcher::ImportSummary, String> {
+    doom_launcher::execute_import(library_path, options)
+}
 
 #[tauri::command]
 async fn read_launcher_downloads(library_path: String) -> Result<launcher_downloads::LauncherDownloads, String> {
@@ -507,6 +538,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            fetch_remote_image,
+            inspect_doom_launcher_db,
+            verify_doom_launcher_files,
+            execute_doom_launcher_import,
             launch_gzdoom,
             get_gzdoom_log,
             get_engine_version,

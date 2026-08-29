@@ -9,6 +9,7 @@ import { SKILL_FULL_NAMES } from "../lib/statsSchema";
 import DownloadPlayButton from "./DownloadPlayButton.vue";
 import WadLinks from "./WadLinks.vue";
 import { getWadLinks } from "../lib/wadLinks";
+import { useRemoteImage } from "../composables/useRemoteImage";
 
 const { isDownloaded: checkDownloaded } = useDownload();
 const { getCachedPlaySummary } = useStats();
@@ -48,7 +49,12 @@ const completionPercent = computed(() => {
   return Math.min(100, Math.round((saveInfo.value.mapsPlayed / totalLevels.value) * 100));
 });
 
-const emit = defineEmits<{ play: [wad: WadEntry, extraArgs?: string[]]; delete: [wad: WadEntry]; edit: [wad: WadEntry] }>();
+const emit = defineEmits<{
+  play: [wad: WadEntry, extraArgs?: string[]];
+  delete: [wad: WadEntry];
+  edit: [wad: WadEntry];
+  tagClick: [tag: string];
+}>();
 
 function playLevel(levelname: string) {
   showStatsModal.value = false;
@@ -66,6 +72,8 @@ const thumbnailUrl = computed(() => {
   return null;
 });
 
+const { resolvedUrl: resolvedThumbnailUrl, markError: markImageError, isError: isImageError } = useRemoteImage(thumbnailUrl);
+
 // Load level names when stats modal opens
 watch(showStatsModal, async (isOpen) => {
   if (isOpen && !levelNamesLoaded.value) {
@@ -82,13 +90,14 @@ watch(showStatsModal, async (isOpen) => {
     <div class="relative aspect-video overflow-hidden bg-zinc-900">
       <!-- Screenshot/thumbnail image -->
       <img
-        v-if="thumbnailUrl"
-        :src="thumbnailUrl"
+        v-if="resolvedThumbnailUrl && !isImageError"
+        :src="resolvedThumbnailUrl"
         :alt="wad.title"
         class="absolute inset-0 w-full h-full object-cover"
+        @error="markImageError"
       />
 
-      <!-- Fallback for WADs without thumbnail or screenshots -->
+      <!-- Fallback for WADs without thumbnail or screenshots or on error -->
       <div
         v-else
         class="absolute inset-0 flex items-center justify-center bg-red-900 px-4 text-center"
@@ -130,6 +139,26 @@ watch(showStatsModal, async (isOpen) => {
       <!-- Bottom-anchored badge/links + actions: keeps the play button aligned
            across cards regardless of how much content sits above -->
       <div class="mt-auto">
+        <!-- Tag pills -->
+        <div v-if="wad.tags && wad.tags.length > 0" class="flex flex-wrap gap-1 mb-2">
+          <button
+            v-for="t in wad.tags.slice(0, 3)"
+            :key="t"
+            type="button"
+            class="px-1.5 py-0.5 rounded text-[10px] bg-zinc-900/80 text-zinc-300 border border-zinc-700/60 hover:border-red-500/60 hover:text-red-300 transition-colors"
+            @click.stop="emit('tagClick', t)"
+          >
+            {{ t }}
+          </button>
+          <span
+            v-if="wad.tags.length > 3"
+            class="px-1.5 py-0.5 rounded text-[10px] text-zinc-500"
+            :title="wad.tags.slice(3).join(', ')"
+          >
+            +{{ wad.tags.length - 3 }}
+          </span>
+        </div>
+
         <div
           v-if="wad._source === 'custom' || hasLinks"
           class="flex flex-nowrap items-center gap-1"

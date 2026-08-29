@@ -33,6 +33,7 @@ export interface CustomEntryFields {
   iwad: Iwad;
   type: WadEntry["type"];
   extraArgs: string[];
+  tags?: string[];
 }
 
 function validateEntry(entry: WadEntry, context: string): WadEntry {
@@ -245,7 +246,7 @@ export function useCustomImport() {
       screenshots: [],
       youtubeVideos: [],
       awards: [],
-      tags: [],
+      tags: fields.tags ?? [],
       difficulty: "unknown",
       urls: [],
       notes: "",
@@ -280,6 +281,7 @@ export function useCustomImport() {
       iwad: fields.iwad,
       type: fields.type,
       extraArgs: fields.extraArgs,
+      tags: fields.tags !== undefined ? fields.tags : existing.tags,
     }, "edited entry");
     await updateCustomWad(entry);
     return entry;
