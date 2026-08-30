@@ -83,9 +83,14 @@ const exploreInitialQuery = ref("");
 const dlImportModalOpen = ref(false);
 
 async function handleDoomLauncherImported() {
-  await loadCustomWads();
-  await loadDownloadState();
-  await loadWadData(wads.value);
+  appInitialized.value = false;
+  try {
+    await loadCustomWads();
+    await loadDownloadState();
+    await loadWadData(wads.value);
+  } finally {
+    appInitialized.value = true;
+  }
 }
 
 // Custom-mod importer: full-screen view, not a modal. We remember which view
@@ -276,53 +281,64 @@ async function handleDelete(wad: WadEntry) {
         <button class="ml-4 text-red-400 hover:text-red-300" @click="errorMsg = ''">Dismiss</button>
       </div>
 
+      <!-- Initial Loading Screen -->
+      <div
+        v-if="!appInitialized"
+        class="flex h-full min-h-[500px] flex-col items-center justify-center space-y-4"
+      >
+        <div class="h-10 w-10 animate-spin rounded-full border-4 border-red-500 border-t-transparent"></div>
+        <p class="text-sm font-medium text-zinc-400">Loading library and play data...</p>
+      </div>
+
       <!-- Views -->
-      <MainView
-        v-if="activeView === 'main'"
-        :wads="playableEntries"
-        @play="(wad: WadEntry, args?: string[]) => handlePlay(wad, args)"
-        @delete="handleDelete"
-        @navigate="(view, query) => { activeView = view; exploreInitialQuery = query ?? ''; }"
-        @add-custom="openCustomImporter"
-        @edit="openCustomEditor"
-        @import-doom-launcher="dlImportModalOpen = true"
-      />
-      <ModsView
-        v-else-if="activeView === 'mods'"
-        :wads="modEntries"
-        @play="(wad: WadEntry, args?: string[]) => handlePlay(wad, args)"
-        @delete="handleDelete"
-        @toggle-active="handleToggleActive"
-        @add-custom="openCustomImporter"
-        @edit="openCustomEditor"
-      />
-      <CustomModView
-        v-else-if="activeView === 'addCustom'"
-        :default-type="customDefaultType"
-        :edit-wad="editingCustomWad"
-        @cancel="closeCustomImporter"
-        @added="closeCustomImporter"
-      />
-      <ExploreView
-        v-else-if="activeView === 'explore'"
-        :wads="exploreEntries"
-        :initial-query="exploreInitialQuery"
-        @play="(wad: WadEntry, args?: string[]) => handlePlay(wad, args)"
-        @delete="handleDelete"
-      />
-      <RunsView
-        v-else-if="activeView === 'runs'"
-        :wads="wads"
-      />
-      <GameplayLogView
-        v-else-if="activeView === 'logs'"
-        :wads="wads"
-      />
-      <SettingsView
-        v-else-if="activeView === 'settings'"
-        @open-doom-launcher-import="dlImportModalOpen = true"
-      />
-      <AboutView v-else-if="activeView === 'about'" />
+      <template v-else>
+        <MainView
+          v-if="activeView === 'main'"
+          :wads="playableEntries"
+          @play="(wad: WadEntry, args?: string[]) => handlePlay(wad, args)"
+          @delete="handleDelete"
+          @navigate="(view, query) => { activeView = view; exploreInitialQuery = query ?? ''; }"
+          @add-custom="openCustomImporter"
+          @edit="openCustomEditor"
+          @import-doom-launcher="dlImportModalOpen = true"
+        />
+        <ModsView
+          v-else-if="activeView === 'mods'"
+          :wads="modEntries"
+          @play="(wad: WadEntry, args?: string[]) => handlePlay(wad, args)"
+          @delete="handleDelete"
+          @toggle-active="handleToggleActive"
+          @add-custom="openCustomImporter"
+          @edit="openCustomEditor"
+        />
+        <CustomModView
+          v-else-if="activeView === 'addCustom'"
+          :default-type="customDefaultType"
+          :edit-wad="editingCustomWad"
+          @cancel="closeCustomImporter"
+          @added="closeCustomImporter"
+        />
+        <ExploreView
+          v-else-if="activeView === 'explore'"
+          :wads="exploreEntries"
+          :initial-query="exploreInitialQuery"
+          @play="(wad: WadEntry, args?: string[]) => handlePlay(wad, args)"
+          @delete="handleDelete"
+        />
+        <RunsView
+          v-else-if="activeView === 'runs'"
+          :wads="wads"
+        />
+        <GameplayLogView
+          v-else-if="activeView === 'logs'"
+          :wads="wads"
+        />
+        <SettingsView
+          v-else-if="activeView === 'settings'"
+          @open-doom-launcher-import="dlImportModalOpen = true"
+        />
+        <AboutView v-else-if="activeView === 'about'" />
+      </template>
     </main>
 
     <!-- DoomLauncher Import Modal -->

@@ -310,7 +310,27 @@ export function useStats() {
   }
 
   async function loadAllPlaySummaries(slugs: string[]): Promise<void> {
-    await Promise.all(slugs.map(slug => getPlaySummary(slug)));
+    const results = await Promise.all(
+      slugs.map(async (slug) => {
+        if (summaryCache.value.has(slug)) {
+          return [slug, summaryCache.value.get(slug)!] as const;
+        }
+        const [sessions, logs] = await Promise.all([
+          loadAllSessions(slug),
+          loadAllGameplayLogs(slug),
+        ]);
+        if (sessions.length === 0 && logs.length === 0) return [slug, null] as const;
+        const summary = buildSummary(slug, sessions, logs);
+        return [slug, summary] as const;
+      })
+    );
+    const newMap = new Map(summaryCache.value);
+    for (const [slug, summary] of results) {
+      if (summary) {
+        newMap.set(slug, summary);
+      }
+    }
+    summaryCache.value = newMap;
   }
 
   async function refreshPlaySummary(slug: string): Promise<WadPlaySummary | null> {

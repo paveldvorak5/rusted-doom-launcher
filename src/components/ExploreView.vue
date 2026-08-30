@@ -166,7 +166,7 @@ const filteredWads = computed(() => {
       <p class="text-zinc-600 text-sm mt-2">Try adjusting your search or filters</p>
     </div>
 
-    <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div v-else class="wad-grid">
       <ExploreCard
         v-for="wad in filteredWads"
         :key="wad.slug"

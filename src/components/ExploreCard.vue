@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from "vue";
+import { Gamepad2 } from "@lucide/vue";
 import type { WadEntry } from "../lib/schema";
 import { useWadSummaries } from "../composables/useWadSummaries";
 import { useRemoteImage } from "../composables/useRemoteImage";
@@ -103,9 +104,11 @@ const authorDisplay = computed(() => {
       <!-- Fallback for no image or on load error -->
       <div
         v-else
-        class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-red-900 to-zinc-900 px-4 text-center"
+        class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-red-950 via-zinc-900 to-zinc-950 px-4 text-center"
       >
-        <span class="text-2xl text-red-200 font-bold leading-tight line-clamp-3 opacity-80">{{ wad.title }}</span>
+        <div class="flex h-12 w-12 items-center justify-center rounded-full border border-red-900/40 bg-red-950/30 text-red-500/40">
+          <Gamepad2 :size="24" />
+        </div>
       </div>
 
       <!-- Gradient overlay for text readability -->
@@ -126,10 +129,10 @@ const authorDisplay = computed(() => {
 
       <!-- Title overlay (bottom) -->
       <div class="absolute bottom-0 left-0 right-0 p-3">
-        <h3 class="text-lg font-bold text-white drop-shadow-lg leading-tight">
+        <h3 class="text-lg font-bold text-white drop-shadow-lg leading-tight line-clamp-2">
           {{ wad.title }}
         </h3>
-        <p class="text-xs text-zinc-300 mt-0.5">
+        <p class="text-xs text-zinc-300 mt-0.5 truncate">
           {{ authorDisplay }} · {{ wad.year }}
         </p>
       </div>

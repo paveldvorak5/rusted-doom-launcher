@@ -530,6 +530,7 @@ pub fn run() {
         // restarts; without this a custom Data Folder breaks on next launch.
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_upload::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(GzdoomLog(Mutex::new(None)))
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;

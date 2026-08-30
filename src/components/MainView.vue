@@ -1,7 +1,7 @@
 <!--suppress SpellCheckingInspection -->
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { Gamepad2, Tag, X, Sparkles } from "@lucide/vue";
+import { Gamepad2, Tag, X, Sparkles, Plus } from "@lucide/vue";
 import FilterBar from "./FilterBar.vue";
 import WadCard from "./WadCard.vue";
 import AddCustomTile from "./AddCustomTile.vue";
@@ -222,13 +222,22 @@ const exploreMatchCount = computed(() => {
             </button>
           </div>
 
-          <button
-            class="text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 px-2.5 py-1 rounded-md border border-zinc-800 shrink-0 ml-2 flex items-center gap-1.5 transition-colors"
-            @click="emit('importDoomLauncher')"
-          >
-            <Sparkles :size="13" class="text-amber-400" />
-            <span>Import DoomLauncher</span>
-          </button>
+          <div class="flex items-center gap-2 shrink-0 ml-2">
+            <button
+              class="text-xs text-zinc-300 hover:text-white bg-zinc-800/80 hover:bg-zinc-700/80 px-2.5 py-1 rounded-md border border-zinc-700/60 shrink-0 flex items-center gap-1.5 transition-colors"
+              @click="emit('addCustom', 'megawad')"
+            >
+              <Plus :size="13" class="text-zinc-300" />
+              <span>Add custom WAD</span>
+            </button>
+            <button
+              class="text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 px-2.5 py-1 rounded-md border border-zinc-800 shrink-0 flex items-center gap-1.5 transition-colors"
+              @click="emit('importDoomLauncher')"
+            >
+              <Sparkles :size="13" class="text-amber-400" />
+              <span>Import DoomLauncher</span>
+            </button>
+          </div>
         </div>
 
         <!-- Tag Pills Strip (when tags exist) -->
@@ -305,7 +314,7 @@ const exploreMatchCount = computed(() => {
       </div>
 
       <!-- WAD Grid -->
-      <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+      <div v-else class="wad-grid">
         <WadCard
           v-for="wad in filteredWads"
           :key="wad.slug"

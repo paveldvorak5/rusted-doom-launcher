@@ -127,7 +127,7 @@ const filteredWads = computed(() => {
         <p class="text-zinc-500">No mods match your search</p>
       </div>
 
-      <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div v-else class="wad-grid">
         <div
           v-for="wad in filteredWads"
           :key="wad.slug"
