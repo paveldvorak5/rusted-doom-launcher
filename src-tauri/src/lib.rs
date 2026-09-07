@@ -216,6 +216,32 @@ async fn write_custom_wads(library_path: String, state: serde_json::Value) -> Re
         .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
 }
 
+#[tauri::command]
+async fn read_wad_ratings(library_path: String) -> Result<serde_json::Value, String> {
+    let path = std::path::PathBuf::from(library_path).join("wad-ratings.json");
+    match std::fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str(&s)
+            .map_err(|e| format!("Failed to parse {}: {}", path.display(), e)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(serde_json::json!({ "version": 1, "ratings": {} }))
+        }
+        Err(e) => Err(format!("Failed to read {}: {}", path.display(), e)),
+    }
+}
+
+#[tauri::command]
+async fn write_wad_ratings(library_path: String, state: serde_json::Value) -> Result<(), String> {
+    let path = std::path::PathBuf::from(library_path).join("wad-ratings.json");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
+    }
+    let json = serde_json::to_string_pretty(&state)
+        .map_err(|e| format!("Failed to serialize wad-ratings.json: {}", e))?;
+    std::fs::write(&path, json)
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+}
+
 // Output collector for the most recent GZDoom launch, held in Tauri managed
 // state. Mutex<Option<...>> so each launch replaces the previous session.
 struct GzdoomLog(Mutex<Option<Arc<Mutex<GZDoomSession>>>>);
@@ -505,9 +531,112 @@ async fn get_gzdoom_log(log: State<'_, GzdoomLog>) -> Result<Option<Vec<(u64, St
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct ClampedWindowBounds {
+    pub width: u32,
+    pub height: u32,
+    pub should_center: bool,
+}
+
+pub fn compute_clamped_window_bounds(
+    win_width: u32,
+    win_height: u32,
+    win_x: i32,
+    win_y: i32,
+    mon_width: u32,
+    mon_height: u32,
+    mon_x: i32,
+    mon_y: i32,
+    scale_factor: f64,
+) -> ClampedWindowBounds {
+    let scale = if scale_factor <= 0.0 { 1.0 } else { scale_factor };
+    let max_height_margin = (60.0 * scale) as u32;
+    let max_height = ((mon_height as f64 * 0.90) as u32)
+        .min(mon_height.saturating_sub(max_height_margin));
+
+    let max_width_margin = (40.0 * scale) as u32;
+    let max_width = ((mon_width as f64 * 0.95) as u32)
+        .min(mon_width.saturating_sub(max_width_margin));
+
+    let min_height = (400.0 * scale) as u32;
+    let min_width = (600.0 * scale) as u32;
+
+    let clamped_max_height = max_height.max(min_height.min(mon_height));
+    let clamped_max_width = max_width.max(min_width.min(mon_width));
+
+    let target_width = win_width.min(clamped_max_width);
+    let target_height = win_height.min(clamped_max_height);
+    let resized = target_width != win_width || target_height != win_height;
+
+    let win_right = win_x + win_width as i32;
+    let win_bottom = win_y + win_height as i32;
+    let mon_right = mon_x + mon_width as i32;
+    let mon_bottom = mon_y + mon_height as i32;
+
+    let out_of_bounds =
+        win_x < mon_x || win_y < mon_y || win_right > mon_right || win_bottom > mon_bottom;
+
+    ClampedWindowBounds {
+        width: target_width,
+        height: target_height,
+        should_center: resized || out_of_bounds,
+    }
+}
+
+pub fn clamp_window_to_monitor(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.is_maximized().unwrap_or(false) || window.is_fullscreen().unwrap_or(false) {
+        return Ok(());
+    }
+
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let monitor_size = monitor.size();
+        let scale_factor = monitor.scale_factor();
+        let monitor_pos = monitor.position();
+
+        let window_size = window
+            .outer_size()
+            .or_else(|_| window.inner_size())
+            .map_err(|e| e.to_string())?;
+
+        let window_pos = window.outer_position().unwrap_or_default();
+
+        let bounds = compute_clamped_window_bounds(
+            window_size.width,
+            window_size.height,
+            window_pos.x,
+            window_pos.y,
+            monitor_size.width,
+            monitor_size.height,
+            monitor_pos.x,
+            monitor_pos.y,
+            scale_factor,
+        );
+
+        if bounds.width != window_size.width || bounds.height != window_size.height {
+            window
+                .set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                    width: bounds.width,
+                    height: bounds.height,
+                }))
+                .map_err(|e| e.to_string())?;
+        }
+
+        if bounds.should_center {
+            let _ = window.center();
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn ensure_window_fits_screen(window: tauri::WebviewWindow) -> Result<(), String> {
+    clamp_window_to_monitor(&window)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::validate_engine_path;
+    use super::*;
 
     #[test]
     fn accepts_engine_basenames_rejects_substring_paths() {
@@ -517,6 +646,45 @@ mod tests {
         // "gzdoom" in a parent directory is not enough.
         assert!(validate_engine_path("/tmp/gzdoom-evil/malware").is_err());
         assert!(validate_engine_path("/usr/bin/doom").is_err());
+    }
+
+    #[test]
+    fn test_compute_clamped_window_bounds_clamps_oversized_height() {
+        // Laptop screen 1366x768, scale 1.0, window height 800
+        let bounds = compute_clamped_window_bounds(
+            1100, 800, 50, 50,
+            1366, 768, 0, 0,
+            1.0,
+        );
+        assert!(bounds.height <= 691);
+        assert_eq!(bounds.width, 1100);
+        assert!(bounds.should_center);
+    }
+
+    #[test]
+    fn test_compute_clamped_window_bounds_keeps_valid_size() {
+        // 1080p screen 1920x1080, scale 1.0, window 1100x700 inside bounds
+        let bounds = compute_clamped_window_bounds(
+            1100, 700, 100, 100,
+            1920, 1080, 0, 0,
+            1.0,
+        );
+        assert_eq!(bounds.height, 700);
+        assert_eq!(bounds.width, 1100);
+        assert!(!bounds.should_center);
+    }
+
+    #[test]
+    fn test_compute_clamped_window_bounds_centers_out_of_bounds_window() {
+        // 1080p screen 1920x1080, window at x=3000 (e.g. disconnected secondary monitor)
+        let bounds = compute_clamped_window_bounds(
+            1100, 700, 3000, 100,
+            1920, 1080, 0, 0,
+            1.0,
+        );
+        assert_eq!(bounds.height, 700);
+        assert_eq!(bounds.width, 1100);
+        assert!(bounds.should_center);
     }
 }
 
@@ -536,6 +704,11 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)
                 .map_err(|e| format!("Failed to create app data dir: {e}"))?;
+
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = clamp_window_to_monitor(&window);
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -553,6 +726,8 @@ pub fn run() {
             read_sibling_text,
             read_custom_wads,
             write_custom_wads,
+            read_wad_ratings,
+            write_wad_ratings,
             validate_game_file,
             extract_game_files,
             extract_zip_entry_to_temp,
@@ -560,7 +735,8 @@ pub fn run() {
             read_zip_entry,
             make_temp_dir,
             cleanup_temp_dir,
-            collect_known_wads
+            collect_known_wads,
+            ensure_window_fits_screen
         ]);
 
     // MCP bridge for Claude Code debugging (dev mode only)

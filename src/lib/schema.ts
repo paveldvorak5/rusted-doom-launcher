@@ -55,6 +55,8 @@ export const WadEntrySchema = z.object({
     year: z.number().int().min(1994).max(MAX_YEAR),
   })),
   tags: z.array(z.string()),
+  // Personal rating shown in the launcher. Zero means not rated yet.
+  rating: z.number().int().min(0).max(5).default(0),
   difficulty: z.enum(["easy", "medium", "hard", "slaughter", "unknown"]),
   urls: z.array(z.url()),
   notes: z.string(),

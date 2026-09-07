@@ -14,8 +14,11 @@
     "windows": [
       {
         "title": "Rusted Doom Launcher",
-        "width": 1200,
-        "height": 800,
+        "width": 1100,
+        "height": 700,
+        "minWidth": 800,
+        "minHeight": 500,
+        "center": true,
         "resizable": true,
         "fullscreen": false,
         "theme": "Dark",

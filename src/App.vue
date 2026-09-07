@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import Sidebar from "./components/Sidebar.vue";
 import MainView from "./components/MainView.vue";
@@ -19,6 +20,7 @@ import { useLibrary } from "./composables/useLibrary";
 import { useSettings } from "./composables/useSettings";
 import { useLevelNames } from "./composables/useLevelNames";
 import { useStats } from "./composables/useStats";
+import { useWadRatings } from "./composables/useWadRatings";
 import type { Iwad, WadEntry } from "./lib/schema";
 import { IWAD_LABELS, IWAD_METADATA } from "./lib/constants";
 import { getErrorMessage } from "./lib/errors";
@@ -42,6 +44,7 @@ function synthIwadEntry(iwad: Iwad): WadEntry {
     youtubeVideos: [],
     awards: [],
     tags: [],
+    rating: 0,
     difficulty: "unknown",
     urls: [],
     notes: "",
@@ -62,6 +65,7 @@ const { detectIwads, availableIwads, launch, isRunning } = useGZDoom();
 const lib = useLibrary();
 
 const { loadState: loadDownloadState, downloadWithDeps, downloadWad, deleteWad, isDownloaded, getDownloadInfo, registerOwnedExpansions } = useDownload();
+const { loadState: loadWadRatings } = useWadRatings();
 
 const iwadEntries = computed<WadEntry[]>(() => availableIwads.value.map(synthIwadEntry));
 // Entries with no download URL (official expansions sourced from GOG
@@ -87,6 +91,7 @@ async function handleDoomLauncherImported() {
   try {
     await loadCustomWads();
     await loadDownloadState();
+    await loadWadRatings();
     await loadWadData(wads.value);
   } finally {
     appInitialized.value = true;
@@ -138,8 +143,14 @@ onMounted(async () => {
     return;
   }
   try {
+    try {
+      await invoke("ensure_window_fits_screen");
+    } catch (e) {
+      console.warn("[App] Failed to ensure window fits screen:", e);
+    }
     await initSettings();
     await loadDownloadState();
+    await loadWadRatings();
     await registerOwnedExpansions();
     await loadCustomWads();
     await pruneActiveMods(s => wads.value.some(w => w.slug === s) && isDownloaded(s));
@@ -284,7 +295,7 @@ async function handleDelete(wad: WadEntry) {
       <!-- Initial Loading Screen -->
       <div
         v-if="!appInitialized"
-        class="flex h-full min-h-[500px] flex-col items-center justify-center space-y-4"
+        class="flex h-full min-h-[200px] flex-col items-center justify-center space-y-4"
       >
         <div class="h-10 w-10 animate-spin rounded-full border-4 border-red-500 border-t-transparent"></div>
         <p class="text-sm font-medium text-zinc-400">Loading library and play data...</p>

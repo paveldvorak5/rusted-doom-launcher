@@ -100,6 +100,8 @@ pub struct DoomLauncherImportOptions {
     pub import_saves: bool,
     pub import_stats: bool,
     pub copy_to_library: bool,
+    #[serde(default)]
+    pub overwrite_existing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -986,13 +988,17 @@ pub fn execute_import(
             continue;
         }
 
-        // Deduplicate slug against existing custom-wads
-        let mut final_slug = item.slug.clone();
-        let mut counter = 2;
-        while existing_slugs.contains(&final_slug) {
-            final_slug = format!("{}-{}", item.slug, counter);
-            counter += 1;
+        // Re-running an import must not make duplicate entries. The verifier
+        // produces stable slugs for a database, so an existing slug identifies
+        // a game that has already been imported.
+        let existing_index = existing_custom_wads
+            .iter()
+            .position(|entry| entry.get("slug").and_then(|slug| slug.as_str()) == Some(item.slug.as_str()));
+        if existing_index.is_some() && !options.overwrite_existing {
+            skipped += 1;
+            continue;
         }
+        let final_slug = item.slug.clone();
         existing_slugs.insert(final_slug.clone());
 
         // Handle copying vs external reference
@@ -1007,7 +1013,7 @@ pub fn execute_import(
             final_filename = item.filename.clone();
             final_external_path = String::new();
             let dest_file = lib_root.join(&final_filename);
-            if !dest_file.exists() {
+            if !dest_file.exists() || options.overwrite_existing {
                 if let Err(e) = fs::copy(&source_file_path, &dest_file) {
                     return Err(format!(
                         "Failed to copy game file {} -> {}: {}",
@@ -1064,6 +1070,7 @@ pub fn execute_import(
             "youtubeVideos": [],
             "awards": [],
             "tags": tags_to_store,
+            "rating": item.rating.unwrap_or(0).clamp(0, 5),
             "difficulty": "unknown",
             "urls": [],
             "notes": item.comments,
@@ -1073,7 +1080,11 @@ pub fn execute_import(
         });
 
         if options.import_metadata {
-            existing_custom_wads.push(custom_entry);
+            if let Some(index) = existing_index {
+                existing_custom_wads[index] = custom_entry;
+            } else {
+                existing_custom_wads.push(custom_entry);
+            }
         }
 
         // Add to launcher-downloads.json
@@ -1256,6 +1267,75 @@ mod tests {
         assert_eq!(verify.matched, 1);
         assert_eq!(verify.ready_items[0].slug, "custom-sunlust");
         assert_eq!(verify.ready_items[0].game_type, "megawad");
+        assert_eq!(verify.ready_items[0].rating, Some(5));
+
+        let library_dir = temp_dir.join("library");
+        fs::create_dir_all(&library_dir).unwrap();
+        let result = execute_import(
+            &library_dir,
+            DoomLauncherImportOptions {
+                db_path: db_file.to_string_lossy().to_string(),
+                source_root: "H:\\Games\\Doom\\DoomMods\\Games".to_string(),
+                target_root: temp_dir.to_string_lossy().to_string(),
+                selected_game_ids: Some(vec![10]),
+                import_metadata: true,
+                import_tags: true,
+                import_saves: false,
+                import_stats: false,
+                copy_to_library: false,
+                overwrite_existing: false,
+            },
+        ).unwrap();
+        assert_eq!(result.imported_games, 1);
+        let custom_wads: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(library_dir.join("custom-wads.json")).unwrap(),
+        ).unwrap();
+        assert_eq!(custom_wads["entries"][0]["rating"], 5);
+
+        let repeat_result = execute_import(
+            &library_dir,
+            DoomLauncherImportOptions {
+                db_path: db_file.to_string_lossy().to_string(),
+                source_root: "H:\\Games\\Doom\\DoomMods\\Games".to_string(),
+                target_root: temp_dir.to_string_lossy().to_string(),
+                selected_game_ids: Some(vec![10]),
+                import_metadata: true,
+                import_tags: true,
+                import_saves: false,
+                import_stats: false,
+                copy_to_library: false,
+                overwrite_existing: false,
+            },
+        ).unwrap();
+        assert_eq!(repeat_result.imported_games, 0);
+        assert_eq!(repeat_result.skipped, 1);
+        let custom_wads: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(library_dir.join("custom-wads.json")).unwrap(),
+        ).unwrap();
+        assert_eq!(custom_wads["entries"].as_array().unwrap().len(), 1);
+
+        conn.execute("UPDATE GameFiles SET Rating = 4 WHERE GameFileID = 10", []).unwrap();
+        let overwrite_result = execute_import(
+            &library_dir,
+            DoomLauncherImportOptions {
+                db_path: db_file.to_string_lossy().to_string(),
+                source_root: "H:\\Games\\Doom\\DoomMods\\Games".to_string(),
+                target_root: temp_dir.to_string_lossy().to_string(),
+                selected_game_ids: Some(vec![10]),
+                import_metadata: true,
+                import_tags: true,
+                import_saves: false,
+                import_stats: false,
+                copy_to_library: false,
+                overwrite_existing: true,
+            },
+        ).unwrap();
+        assert_eq!(overwrite_result.imported_games, 1);
+        let custom_wads: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(library_dir.join("custom-wads.json")).unwrap(),
+        ).unwrap();
+        assert_eq!(custom_wads["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(custom_wads["entries"][0]["rating"], 4);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

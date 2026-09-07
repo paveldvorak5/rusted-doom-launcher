@@ -17,6 +17,9 @@ import {
   Search,
 } from "@lucide/vue";
 import { useDoomLauncherImport } from "../composables/useDoomLauncherImport";
+import { useSettings } from "../composables/useSettings";
+import { useCustomWads } from "../composables/useCustomWads";
+import { kebab } from "../lib/slug";
 
 const props = defineProps<{
   open: boolean;
@@ -40,6 +43,8 @@ const {
   executeImport,
   reset,
 } = useDoomLauncherImport();
+const { settings, rememberDoomLauncherImport } = useSettings();
+const { customWads } = useCustomWads();
 
 const step = ref<1 | 2 | 3 | 4>(1);
 
@@ -56,6 +61,7 @@ const importTags = ref(true);
 const importSaves = ref(true);
 const importStats = ref(true);
 const copyToLibrary = ref(false);
+const overwriteExisting = ref(false);
 
 const selectedGameIds = ref<Set<number>>(new Set());
 const gameSearch = ref("");
@@ -67,10 +73,10 @@ watch(
     if (isOpen) {
       step.value = 1;
       reset();
-      // If db exists in current dir, we can prefill as hint
-      dbPath.value = "";
-      sourceRoot.value = "";
-      targetRoot.value = "";
+      const lastMapping = settings.value.doomLauncherImports[0];
+      dbPath.value = lastMapping?.dbPath ?? "";
+      sourceRoot.value = lastMapping?.sourceRoot ?? "";
+      targetRoot.value = lastMapping?.targetRoot ?? "";
       selectedGameIds.value = new Set();
     }
   }
@@ -89,9 +95,11 @@ async function browseDatabase() {
   dbPath.value = path;
   const res = await inspectDatabase(path);
   if (res) {
-    sourceRoot.value = res.detected_root;
+    const savedMapping = settings.value.doomLauncherImports.find(entry => entry.dbPath === path);
+    sourceRoot.value = savedMapping?.sourceRoot || res.detected_root;
+    targetRoot.value = savedMapping?.targetRoot ?? "";
     // Pre-select all games
-    selectedGameIds.value = new Set(res.games_preview.map((g) => g.id));
+    selectUnimportedGames();
   }
 }
 
@@ -110,13 +118,18 @@ async function handleNextFromStep1() {
   if (!inspection.value) {
     const res = await inspectDatabase(dbPath.value);
     if (!res) return;
-    sourceRoot.value = res.detected_root;
-    selectedGameIds.value = new Set(res.games_preview.map((g) => g.id));
+    if (!sourceRoot.value) sourceRoot.value = res.detected_root;
+    selectUnimportedGames();
   }
   step.value = 2;
 }
 
 async function handleNextFromStep2() {
+  await rememberDoomLauncherImport({
+    dbPath: dbPath.value,
+    sourceRoot: sourceRoot.value,
+    targetRoot: targetRoot.value,
+  });
   step.value = 3;
 }
 
@@ -141,16 +154,54 @@ const filteredGames = computed(() => {
   );
 });
 
+// Keep this slug allocation in sync with the Rust verifier so an already
+// imported game can be recognized before the user reaches verification.
+const importSlugs = computed(() => {
+  const slugs = new Map<number, string>();
+  const used = new Set<string>();
+  for (const game of inspection.value?.games_preview ?? []) {
+    const filename = game.filename.replace(/\\/g, "/").split("/").pop() ?? "";
+    const base = kebab(game.title) || kebab(filename) || `dl-game-${game.id}`;
+    let slug = `custom-${base}`;
+    let counter = 2;
+    while (used.has(slug)) slug = `custom-${base}-${counter++}`;
+    used.add(slug);
+    slugs.set(game.id, slug);
+  }
+  return slugs;
+});
+
+function alreadyImported(game: { id: number }): boolean {
+  const slug = importSlugs.value.get(game.id);
+  return !!slug && customWads.value.some(wad => wad.slug === slug);
+}
+
+function selectableGameIds(): number[] {
+  return (inspection.value?.games_preview ?? [])
+    .filter(game => overwriteExisting.value || !alreadyImported(game))
+    .map(game => game.id);
+}
+
+function canImport(game: { id: number }): boolean {
+  return overwriteExisting.value || !alreadyImported(game);
+}
+
+function selectUnimportedGames() {
+  selectedGameIds.value = new Set(selectableGameIds());
+}
+
 function toggleAllGames(select: boolean) {
   if (!inspection.value) return;
   if (select) {
-    selectedGameIds.value = new Set(inspection.value.games_preview.map((g) => g.id));
+    selectUnimportedGames();
   } else {
     selectedGameIds.value = new Set();
   }
 }
 
 function toggleGame(id: number) {
+  const game = inspection.value?.games_preview.find(candidate => candidate.id === id);
+  if (game && !canImport(game)) return;
   const next = new Set(selectedGameIds.value);
   if (next.has(id)) {
     next.delete(id);
@@ -158,6 +209,15 @@ function toggleGame(id: number) {
     next.add(id);
   }
   selectedGameIds.value = next;
+}
+
+function useSavedMapping(databasePath: string) {
+  const mapping = settings.value.doomLauncherImports.find(entry => entry.dbPath === databasePath);
+  if (!mapping) return;
+  dbPath.value = mapping.dbPath;
+  sourceRoot.value = mapping.sourceRoot;
+  targetRoot.value = mapping.targetRoot;
+  inspection.value = null;
 }
 
 async function runImport() {
@@ -171,6 +231,7 @@ async function runImport() {
     import_saves: importSaves.value,
     import_stats: importStats.value,
     copy_to_library: copyToLibrary.value,
+    overwrite_existing: overwriteExisting.value,
   };
 
   const res = await executeImport(options);
@@ -289,6 +350,17 @@ function handleDone() {
                 <FolderOpen :size="16" />
                 Browse
               </button>
+            </div>
+            <div v-if="settings.doomLauncherImports.length > 1" class="mt-2 flex flex-wrap items-center gap-1.5">
+              <span class="text-[11px] text-zinc-500">Recent mappings:</span>
+              <button
+                v-for="mapping in settings.doomLauncherImports.slice(1)"
+                :key="mapping.dbPath"
+                type="button"
+                class="max-w-64 truncate rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
+                :title="mapping.dbPath"
+                @click="useSavedMapping(mapping.dbPath)"
+              >{{ mapping.dbPath }}</button>
             </div>
           </div>
 
@@ -432,11 +504,26 @@ function handleDone() {
             </label>
           </div>
 
+          <label class="flex items-start gap-2.5 p-3 rounded-lg bg-zinc-950/60 border border-zinc-800 cursor-pointer hover:border-zinc-700 transition-colors">
+            <input v-model="overwriteExisting" type="checkbox" class="mt-0.5 rounded accent-red-600 w-4 h-4" />
+            <div>
+              <span class="text-sm font-medium text-zinc-200">Overwrite existing imports</span>
+              <p class="text-xs text-zinc-400 mt-0.5">Off by default. Lets you select a previously imported WAD to restore its metadata, file, saves, and statistics from DoomLauncher.</p>
+            </div>
+          </label>
+
+          <div class="rounded-lg border border-amber-800/50 bg-amber-950/20 p-3 text-xs text-zinc-300">
+            <p class="font-medium text-amber-300">Running this import again</p>
+            <p class="mt-1 leading-relaxed text-zinc-400">
+              WADs that were imported before are automatically unselected and cannot be imported again. Enable overwrite above only when you want to restore one. If overwrite stays off, existing metadata, rating, saves, and stats remain unchanged.
+            </p>
+          </div>
+
           <!-- Games List Table -->
           <div class="space-y-2">
             <div class="flex items-center justify-between">
               <span class="text-xs font-medium text-zinc-400">
-                Select WADs to import ({{ selectedGameIds.size }} of {{ inspection?.games_preview.length }} selected):
+                Select WADs to import ({{ selectedGameIds.size }} of {{ selectableGameIds().length }} available):
               </span>
               <div class="flex gap-2">
                 <button
@@ -469,19 +556,22 @@ function handleDone() {
               <div
                 v-for="g in filteredGames"
                 :key="g.id"
-                class="flex items-center justify-between px-3 py-2 hover:bg-zinc-800/40 cursor-pointer"
+                class="flex items-center justify-between px-3 py-2"
+                :class="!canImport(g) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-zinc-800/40'"
                 @click="toggleGame(g.id)"
               >
                 <div class="flex items-center gap-2.5 overflow-hidden">
                   <input
                     type="checkbox"
                     :checked="selectedGameIds.has(g.id)"
+                    :disabled="!canImport(g)"
                     class="rounded accent-red-600 w-3.5 h-3.5"
                     @click.stop="toggleGame(g.id)"
                   />
                   <div class="truncate">
                     <span class="text-xs font-medium text-zinc-200">{{ g.title }}</span>
                     <span class="text-[11px] text-zinc-500 block truncate">{{ g.filename }}</span>
+                    <span v-if="alreadyImported(g)" class="text-[10px] text-amber-400">Already imported</span>
                   </div>
                 </div>
 

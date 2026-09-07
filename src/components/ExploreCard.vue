@@ -6,11 +6,14 @@ import { useWadSummaries } from "../composables/useWadSummaries";
 import { useRemoteImage } from "../composables/useRemoteImage";
 import DownloadPlayButton from "./DownloadPlayButton.vue";
 import WadLinks from "./WadLinks.vue";
+import WadRating from "./WadRating.vue";
+import { useWadRatings } from "../composables/useWadRatings";
 
 // Slideshow interval in milliseconds
 const SLIDESHOW_INTERVAL_MS = 2000;
 
 const { getDifficulty, getVibe } = useWadSummaries();
+const { getRating, setRating } = useWadRatings();
 
 const props = defineProps<{
   wad: WadEntry;
@@ -21,6 +24,15 @@ const emit = defineEmits<{ play: [wad: WadEntry] }>();
 // Get difficulty from summaries
 const difficulty = computed(() => getDifficulty(props.wad.slug));
 const vibe = computed(() => getVibe(props.wad.slug));
+const rating = computed(() => getRating(props.wad.slug, props.wad.rating));
+
+async function updateRating(value: number) {
+  try {
+    await setRating(props.wad.slug, value);
+  } catch (error) {
+    console.error("[ExploreCard] Failed to save rating:", error);
+  }
+}
 
 // Difficulty color and label based on 1-10 scale
 const difficultyConfig = computed(() => {
@@ -140,6 +152,7 @@ const authorDisplay = computed(() => {
 
     <!-- Content area -->
     <div class="flex flex-1 flex-col p-3">
+      <WadRating class="mb-2" :rating="rating" @change="updateRating" />
       <!-- Vibe text - the hook -->
       <p
         v-if="vibe"

@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, useTemplateRef, watch } from "vue";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Tag, Plus, X } from "@lucide/vue";
+import { Tag, Plus, X, Copy, Check } from "@lucide/vue";
 import { type WadEntry, type Iwad } from "../lib/schema";
 import { IWAD_PICKER_OPTIONS } from "../lib/constants";
 import { useDownload } from "../composables/useDownload";
 import { useSettings } from "../composables/useSettings";
 import { useCustomWads } from "../composables/useCustomWads";
+import { useWadRatings } from "../composables/useWadRatings";
+import { useLibrary } from "../composables/useLibrary";
+import { useGZDoom } from "../composables/useGZDoom";
 import { useCustomImport, discardPickedZip, type PickedZip } from "../composables/useCustomImport";
 import { type FileInspection } from "../lib/wadInspect";
 import { basenameOf } from "../lib/platform";
@@ -41,7 +44,10 @@ const TYPES: { value: WadEntry["type"]; label: string }[] = [
 
 const { getDownloadInfo } = useDownload();
 const { settings } = useSettings();
+const { wadFile, iwadFile } = useLibrary();
+const { getIwadFilename } = useGZDoom();
 const { customWads } = useCustomWads();
+const { getRating, setRating } = useWadRatings();
 const { inspectPick, importCustomWad, updateCustomEntry } = useCustomImport();
 
 const suggestedTags = computed(() => {
@@ -71,6 +77,7 @@ const year = ref<number>(new Date().getFullYear());
 const entryType = ref<WadEntry["type"]>(props.defaultType);
 const iwad = ref<Iwad>("doom2");
 const tags = ref<string[]>([]);
+const rating = ref<number>(0);
 const tagInput = ref<string>("");
 const rows = ref<ArgRow[]>([]);
 const errorMsg = ref<string>("");
@@ -128,6 +135,7 @@ onMounted(() => {
     entryType.value = w.type;
     iwad.value = w.iwad;
     tags.value = [...(w.tags ?? [])];
+    rating.value = getRating(w.slug, w.rating);
     rows.value = rowsFromTokens(w.extraArgs);
   } else {
     sourcePath.value = "";
@@ -137,6 +145,7 @@ onMounted(() => {
     entryType.value = props.defaultType;
     iwad.value = "doom2";
     tags.value = [];
+    rating.value = 0;
     rows.value = [];
     copyToLibrary.value = true;
   }
@@ -153,6 +162,7 @@ onUnmounted(() => {
   // Cancel path: a pick-time temp extraction may still be around. (After a
   // successful import this is a harmless no-op — cleanup is idempotent.)
   void discardPickedZip(pickedZip.value);
+  if (copiedCommandTimer) clearTimeout(copiedCommandTimer);
 });
 
 const engineName = computed(() => {
@@ -168,21 +178,40 @@ const heading = computed(() => editing.value ? "Edit custom WAD or mod" : "Add c
 
 const cleanedArgs = computed<string[]>(() => rowsToTokens(rows.value));
 
-const effectiveFilename = computed<string>(() => {
-  // When the user opts out of copying, the launch will use the path they
-  // picked verbatim — show that in the command preview so it matches
-  // reality (including the .zip extension if they picked one).
-  if (!copyToLibrary.value && sourcePath.value) return sourcePath.value;
-  if (pickedZip.value) return pickedZip.value.innerName;
-  return sourcePath.value ? basenameOf(sourcePath.value) : "";
+const commandFilePath = computed(() => {
+  if (!sourcePath.value) return "<file>";
+  if (!copyToLibrary.value) return sourcePath.value;
+  return wadFile(pickedZip.value?.innerName ?? basenameOf(sourcePath.value));
 });
 
+function quoteCommandToken(value: string): string {
+  return /[\s"]/u.test(value) ? `"${value.replaceAll('"', '\\"')}"` : value;
+}
+
 const commandPreview = computed(() => {
-  const iwadFile = `${iwad.value}.wad`;
-  const fileToken = effectiveFilename.value || "<file>";
-  const parts = [engineName.value, "-iwad", iwadFile, "-file", fileToken, ...cleanedArgs.value];
-  return parts.join(" ");
+  const enginePath = settings.value.gzdoomPath || engineName.value;
+  // Preserve the detected filename's case. Linux treats DOOM2.WAD and
+  // doom2.wad as separate paths, and both IWAD and custom WAD need absolute
+  // paths to make the copied command work from any shell directory.
+  const detectedIwad = getIwadFilename(iwad.value) ?? `${iwad.value}.wad`;
+  const parts = [enginePath, "-iwad", iwadFile(detectedIwad), "-file", commandFilePath.value, ...cleanedArgs.value];
+  return parts.map(quoteCommandToken).join(" ");
 });
+
+const copiedCommand = ref(false);
+let copiedCommandTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function copyCommand() {
+  try {
+    await navigator.clipboard.writeText(commandPreview.value);
+    copiedCommand.value = true;
+    if (copiedCommandTimer) clearTimeout(copiedCommandTimer);
+    copiedCommandTimer = setTimeout(() => { copiedCommand.value = false; }, 1800);
+  } catch (error) {
+    console.error("[CustomModView] Failed to copy command:", error);
+    errorMsg.value = "Couldn't copy the command. Select and copy it manually.";
+  }
+}
 
 const canSubmit = computed(() =>
   sourcePath.value.length > 0 && title.value.trim().length > 0 && !submitting.value
@@ -324,9 +353,11 @@ async function onSubmit() {
       type: entryType.value,
       extraArgs: cleanedArgs.value,
       tags: tags.value,
+      rating: rating.value,
     };
     if (editing.value && props.editWad) {
       const updated = await updateCustomEntry(props.editWad, fields);
+      await setRating(updated.slug, rating.value);
       emit("added", updated);
       return;
     }
@@ -461,6 +492,29 @@ async function onSubmit() {
       </div>
 
       <!-- Tags / Categories -->
+      <div class="space-y-1.5">
+        <label class="text-sm font-medium text-zinc-300">Rating</label>
+        <div class="flex items-center gap-1" role="radiogroup" aria-label="Rating">
+          <button
+            v-for="star in 5"
+            :key="star"
+            type="button"
+            class="text-2xl leading-none transition-colors"
+            :class="star <= rating ? 'text-amber-400' : 'text-zinc-600 hover:text-amber-300'"
+            :aria-label="`${star} of 5 stars`"
+            :aria-checked="star === rating"
+            role="radio"
+            @click="rating = rating === star ? 0 : star"
+          >★</button>
+          <button
+            v-if="rating"
+            type="button"
+            class="ml-2 text-xs text-zinc-500 hover:text-zinc-300"
+            @click="rating = 0"
+          >Clear</button>
+        </div>
+      </div>
+
       <div class="space-y-1.5">
         <label class="text-sm font-medium text-zinc-300 flex items-center gap-1.5">
           <Tag :size="14" class="text-zinc-400" />
@@ -690,7 +744,19 @@ async function onSubmit() {
 
       <!-- Command preview -->
       <div class="space-y-1.5">
-        <label class="text-sm font-medium text-zinc-300">Command preview</label>
+        <div class="flex items-center justify-between gap-3">
+          <label class="text-sm font-medium text-zinc-300">Command preview</label>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
+            :title="copiedCommand ? 'Copied' : 'Copy command with full paths'"
+            @click="copyCommand"
+          >
+            <Check v-if="copiedCommand" :size="14" class="text-emerald-400" />
+            <Copy v-else :size="14" />
+            {{ copiedCommand ? "Copied" : "Copy" }}
+          </button>
+        </div>
         <pre class="overflow-x-auto rounded border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-300">{{ commandPreview }}</pre>
       </div>
     </div>

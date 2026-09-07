@@ -34,6 +34,7 @@ export interface CustomEntryFields {
   type: WadEntry["type"];
   extraArgs: string[];
   tags?: string[];
+  rating?: number;
 }
 
 function validateEntry(entry: WadEntry, context: string): WadEntry {
@@ -247,6 +248,7 @@ export function useCustomImport() {
       youtubeVideos: [],
       awards: [],
       tags: fields.tags ?? [],
+      rating: fields.rating ?? 0,
       difficulty: "unknown",
       urls: [],
       notes: "",
@@ -282,6 +284,7 @@ export function useCustomImport() {
       type: fields.type,
       extraArgs: fields.extraArgs,
       tags: fields.tags !== undefined ? fields.tags : existing.tags,
+      rating: fields.rating ?? existing.rating,
     }, "edited entry");
     await updateCustomWad(entry);
     return entry;

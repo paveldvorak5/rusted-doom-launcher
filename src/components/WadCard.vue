@@ -10,10 +10,13 @@ import DownloadPlayButton from "./DownloadPlayButton.vue";
 import WadLinks from "./WadLinks.vue";
 import { getWadLinks } from "../lib/wadLinks";
 import { useRemoteImage } from "../composables/useRemoteImage";
+import { useWadRatings } from "../composables/useWadRatings";
+import WadRating from "./WadRating.vue";
 
 const { isDownloaded: checkDownloaded } = useDownload();
 const { getCachedPlaySummary } = useStats();
 const { loadLevelNames, getCachedLevelNames, getLevelDisplayName } = useLevelNames();
+const { getRating, setRating } = useWadRatings();
 
 const TYPE_LABELS: Record<WadEntry["type"], string> = {
   iwad: "Base game",
@@ -37,6 +40,15 @@ const props = defineProps<{
 const isDownloaded = computed(() => checkDownloaded(props.wad.slug));
 const saveInfo = computed(() => getCachedPlaySummary(props.wad.slug));
 const hasLinks = computed(() => getWadLinks(props.wad).length > 0);
+const rating = computed(() => getRating(props.wad.slug, props.wad.rating));
+
+async function updateRating(value: number) {
+  try {
+    await setRating(props.wad.slug, value);
+  } catch (error) {
+    console.error("[WadCard] Failed to save rating:", error);
+  }
+}
 
 // Level completion progress
 const totalLevels = computed(() => {
@@ -109,6 +121,7 @@ watch(showStatsModal, async (isOpen) => {
     <div class="flex flex-1 flex-col p-3">
       <h3 class="truncate font-semibold text-zinc-100">{{ wad.title }}</h3>
       <p class="truncate text-sm text-zinc-400">{{ wad.authors.map(a => a.name).join(", ") }} • {{ wad.year }} • {{ TYPE_LABELS[wad.type] }}<template v-if="wad.difficulty !== 'unknown'"> • {{ DIFFICULTY_CONFIG[wad.difficulty].label }}</template></p>
+      <WadRating class="mt-1" :rating="rating" @change="updateRating" />
 
       <!-- Save/Progress info (clickable to show details) -->
       <button

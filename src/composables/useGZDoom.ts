@@ -74,6 +74,11 @@ export function useGZDoom() {
     console.log("[detectIwads] Available IWADs:", availableIwads.value);
   }
 
+  /** Filename as detected on disk, preserving case for Linux filesystems. */
+  function getIwadFilename(iwad: Iwad): string | undefined {
+    return iwadFilenames.get(iwad);
+  }
+
   async function launch(
     wadPath: string,
     iwad: Iwad,
@@ -133,5 +138,5 @@ export function useGZDoom() {
     isRunning.value = true;
   }
 
-  return { isRunning, availableIwads, detectIwads, launch };
+  return { isRunning, availableIwads, detectIwads, getIwadFilename, launch };
 }

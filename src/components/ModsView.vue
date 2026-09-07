@@ -7,6 +7,8 @@ import { useDownload } from "../composables/useDownload";
 import { useSettings } from "../composables/useSettings";
 import { fetchImageDataUrl } from "../composables/useRemoteImage";
 import DownloadPlayButton from "./DownloadPlayButton.vue";
+import WadRating from "./WadRating.vue";
+import { useWadRatings } from "../composables/useWadRatings";
 import AddCustomTile from "./AddCustomTile.vue";
 
 const { wads } = defineProps<{
@@ -22,6 +24,15 @@ const emit = defineEmits<{
 }>();
 
 const { isDownloaded: checkDownloaded } = useDownload();
+const { getRating, setRating } = useWadRatings();
+
+async function updateRating(slug: string, value: number) {
+  try {
+    await setRating(slug, value);
+  } catch (error) {
+    console.error("[ModsView] Failed to save rating:", error);
+  }
+}
 const { settings } = useSettings();
 
 const resolvedThumbnails = ref<Record<string, string>>({});
@@ -161,6 +172,7 @@ const filteredWads = computed(() => {
               >Custom</span>
             </h3>
             <p class="truncate text-sm text-zinc-400">{{ authorsLine(wad) }}</p>
+            <WadRating class="mt-1" :rating="getRating(wad.slug, wad.rating)" @change="updateRating(wad.slug, $event)" />
 
             <div class="mt-3 flex gap-2">
               <template v-if="checkDownloaded(wad.slug)">

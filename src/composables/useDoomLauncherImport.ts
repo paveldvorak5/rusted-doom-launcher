@@ -91,6 +91,7 @@ export interface DoomLauncherImportOptions {
   import_saves: boolean;
   import_stats: boolean;
   copy_to_library: boolean;
+  overwrite_existing: boolean;
 }
 
 export interface ImportSummary {
