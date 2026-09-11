@@ -303,18 +303,20 @@ async function handleDelete(wad: WadEntry) {
 
       <!-- Views -->
       <template v-else>
-        <MainView
-          v-if="activeView === 'main'"
-          :wads="playableEntries"
-          @play="(wad: WadEntry, args?: string[]) => handlePlay(wad, args)"
-          @delete="handleDelete"
-          @navigate="(view, query) => { activeView = view; exploreInitialQuery = query ?? ''; }"
-          @add-custom="openCustomImporter"
-          @edit="openCustomEditor"
-          @import-doom-launcher="dlImportModalOpen = true"
-        />
+        <KeepAlive>
+          <MainView
+            v-if="activeView === 'main'"
+            :wads="playableEntries"
+            @play="(wad: WadEntry, args?: string[]) => handlePlay(wad, args)"
+            @delete="handleDelete"
+            @navigate="(view, query) => { activeView = view; exploreInitialQuery = query ?? ''; }"
+            @add-custom="openCustomImporter"
+            @edit="openCustomEditor"
+            @import-doom-launcher="dlImportModalOpen = true"
+          />
+        </KeepAlive>
         <ModsView
-          v-else-if="activeView === 'mods'"
+          v-if="activeView === 'mods'"
           :wads="modEntries"
           @play="(wad: WadEntry, args?: string[]) => handlePlay(wad, args)"
           @delete="handleDelete"
@@ -323,32 +325,32 @@ async function handleDelete(wad: WadEntry) {
           @edit="openCustomEditor"
         />
         <CustomModView
-          v-else-if="activeView === 'addCustom'"
+          v-if="activeView === 'addCustom'"
           :default-type="customDefaultType"
           :edit-wad="editingCustomWad"
           @cancel="closeCustomImporter"
           @added="closeCustomImporter"
         />
         <ExploreView
-          v-else-if="activeView === 'explore'"
+          v-if="activeView === 'explore'"
           :wads="exploreEntries"
           :initial-query="exploreInitialQuery"
           @play="(wad: WadEntry, args?: string[]) => handlePlay(wad, args)"
           @delete="handleDelete"
         />
         <RunsView
-          v-else-if="activeView === 'runs'"
+          v-if="activeView === 'runs'"
           :wads="wads"
         />
         <GameplayLogView
-          v-else-if="activeView === 'logs'"
+          v-if="activeView === 'logs'"
           :wads="wads"
         />
         <SettingsView
-          v-else-if="activeView === 'settings'"
+          v-if="activeView === 'settings'"
           @open-doom-launcher-import="dlImportModalOpen = true"
         />
-        <AboutView v-else-if="activeView === 'about'" />
+        <AboutView v-if="activeView === 'about'" />
       </template>
     </main>
 
