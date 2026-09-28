@@ -75,7 +75,17 @@ const playableEntries = computed<WadEntry[]>(() =>
   [...iwadEntries.value, ...wads.value.filter(w => w.type !== "gameplay-mod" && w.type !== "resource-pack" && obtainable(w))]
 );
 const modEntries = computed<WadEntry[]>(() => wads.value.filter(w => w.type === "gameplay-mod"));
-const exploreEntries = computed<WadEntry[]>(() => wads.value.filter(w => w.type !== "resource-pack" && obtainable(w)));
+// Explore is the downloadable catalog. Locally imported WADs are managed in
+// Play (or Mods for gameplay mods), where their custom metadata can be edited.
+const exploreEntries = computed<WadEntry[]>(() =>
+  wads.value.filter(w => w._source !== "custom" && w.type !== "resource-pack" && obtainable(w))
+);
+// History only exists for WADs present in the user's library. Passing the
+// whole catalog to Runs/Logs makes those views probe hundreds of absent
+// directories whenever they are opened.
+const historyEntries = computed<WadEntry[]>(() =>
+  wads.value.filter(w => isDownloaded(w.slug) || w._source === "custom")
+);
 const { hasSlug: isCustomSlug, removeCustomWad, loadState: loadCustomWads } = useCustomWads();
 const { settings, isFirstRun, initSettings, toggleActiveMod, pruneActiveMods } = useSettings();
 const { loadAllLevelNames } = useLevelNames();
@@ -130,8 +140,13 @@ const lastPlayedSlug = ref<string | null>(null);
 const appInitialized = ref(false);
 
 async function loadWadData(entries: WadEntry[]) {
-  if (entries.length === 0) return;
-  const slugs = entries.map(w => w.slug);
+  // The catalog has hundreds of entries, but only files in the user's
+  // library can have saves, gameplay logs, or persisted level names. Doing
+  // filesystem IPC for every catalog entry kept the Play view behind its
+  // loading screen for several seconds on every start.
+  const libraryEntries = entries.filter(w => isDownloaded(w.slug) || w._source === "custom");
+  if (libraryEntries.length === 0) return;
+  const slugs = libraryEntries.map(w => w.slug);
   await loadAllLevelNames(slugs);
   await Promise.all(slugs.map(s => captureStats(s)));
   await loadAllPlaySummaries(slugs);
@@ -155,8 +170,13 @@ onMounted(async () => {
     await loadCustomWads();
     await pruneActiveMods(s => wads.value.some(w => w.slug === s) && isDownloaded(s));
     await detectIwads();
-    await loadWadData(wads.value);
     appInitialized.value = true;
+
+    // Show the library immediately. Save capture and history hydration update
+    // the reactive card data when complete, without delaying the Play page.
+    void loadWadData(wads.value).catch(e => {
+      console.error("[App] Failed to load play data:", e);
+    });
 
     // On first run, open Settings so user can verify configuration
     if (isFirstRun.value) {
@@ -342,11 +362,11 @@ async function handleDelete(wad: WadEntry) {
         />
         <RunsView
           v-if="activeView === 'runs'"
-          :wads="wads"
+          :wads="historyEntries"
         />
         <GameplayLogView
           v-if="activeView === 'logs'"
-          :wads="wads"
+          :wads="historyEntries"
         />
         <SettingsView
           v-if="activeView === 'settings'"

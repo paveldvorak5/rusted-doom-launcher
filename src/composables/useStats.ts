@@ -29,6 +29,11 @@ export interface WadPlaySummary {
 
 // Singleton cache
 const summaryCache = ref<Map<string, WadPlaySummary>>(new Map());
+// Runs and the Play summary both consume the same session files. Keep their
+// parsed form process-wide and share in-flight reads so switching tabs never
+// starts a second full scan of the history.
+const sessionsCache = new Map<string, PlaySession[]>();
+const sessionsLoading = new Map<string, Promise<PlaySession[]>>();
 
 // Parse level name from GZDoom info.json Comment field
 // Format: "MAP13 - Polychromatic Terrace" or "E1M1 - Hangar"
@@ -188,11 +193,17 @@ export function useStats() {
       await mergeLevelNames(slug, discoveredNames);
     }
 
+    if (capturedCount > 0) {
+      sessionsCache.delete(slug);
+      summaryCache.value.delete(slug);
+    }
+
     return capturedCount;
   }
 
-  // Load all play sessions for a WAD
-  async function loadAllSessions(slug: string): Promise<PlaySession[]> {
+  // Read all play sessions for a WAD from disk. The public loader below adds
+  // caching and in-flight request sharing.
+  async function readAllSessions(slug: string): Promise<PlaySession[]> {
     const statsDirPath = statsDir(slug);
 
     try {
@@ -215,32 +226,52 @@ export function useStats() {
     // Level names from central store (WAD MAPINFO + save file Comments)
     const levelNames = getCachedLevelNames(slug) ?? await loadLevelNames(slug);
 
-    const sessions: PlaySession[] = [];
-    for (const filename of files) {
+    const sessions = await Promise.all(files.map(async filename => {
       try {
         const content = await readTextFile(`${statsDirPath}/${filename}`);
         const parsed = PlaySessionSchema.safeParse(JSON.parse(content));
-        if (parsed.success) {
-          const session = parsed.data;
-          // Apply display names from central level names store
-          if (levelNames) {
-            for (const level of session.levels) {
-              if (level.name === level.id) {
-                const name = levelNames.get(level.id);
-                if (name) level.name = name;
-              }
+        if (!parsed.success) {
+          console.warn(`Invalid session file ${filename}:`, parsed.error.issues);
+          return null;
+        }
+        const session = parsed.data;
+        // Apply display names from central level names store.
+        if (levelNames) {
+          for (const level of session.levels) {
+            if (level.name === level.id) {
+              const name = levelNames.get(level.id);
+              if (name) level.name = name;
             }
           }
-          sessions.push(session);
-        } else {
-          console.warn(`Invalid session file ${filename}:`, parsed.error.issues);
         }
+        return session;
       } catch (e) {
         console.error(`Error reading session file ${filename}:`, e);
+        return null;
       }
-    }
+    }));
 
-    return sessions;
+    return sessions.filter((session): session is PlaySession => session !== null);
+  }
+
+  // Load all play sessions for a WAD, reusing a completed or ongoing read.
+  async function loadAllSessions(slug: string): Promise<PlaySession[]> {
+    const cached = sessionsCache.get(slug);
+    if (cached) return cached;
+
+    const ongoing = sessionsLoading.get(slug);
+    if (ongoing) return ongoing;
+
+    const loading = readAllSessions(slug).then(sessions => {
+      sessionsCache.set(slug, sessions);
+      return sessions;
+    });
+    sessionsLoading.set(slug, loading);
+    try {
+      return await loading;
+    } finally {
+      sessionsLoading.delete(slug);
+    }
   }
 
   /** Build a WadPlaySummary from sessions and gameplay logs (best-per-level aggregation). */
