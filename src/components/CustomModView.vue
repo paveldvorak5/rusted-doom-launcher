@@ -84,9 +84,9 @@ const errorMsg = ref<string>("");
 const submitting = ref(false);
 const inspection = ref<FileInspection | null>(null);
 const inspecting = ref(false);
-// When user picks a .zip bundle, the inner game file is stream-extracted
-// to a temp file at pick time; inspection and the eventual copy into the
-// library both work from that file. innerName is the basename we'll save as.
+// When a ZIP is picked its primary game file is stream-extracted to a temp
+// file for inspection. The complete bundle is extracted to the library on
+// import; innerName identifies its primary launch file.
 const pickedZip = ref<PickedZip | null>(null);
 
 const pickerOpen = ref(false);
@@ -188,14 +188,27 @@ function quoteCommandToken(value: string): string {
   return /[\s"]/u.test(value) ? `"${value.replaceAll('"', '\\"')}"` : value;
 }
 
-const commandPreview = computed(() => {
+const commandPreviewGroups = computed(() => {
   const enginePath = settings.value.gzdoomPath || engineName.value;
   // Preserve the detected filename's case. Linux treats DOOM2.WAD and
   // doom2.wad as separate paths, and both IWAD and custom WAD need absolute
   // paths to make the copied command work from any shell directory.
   const detectedIwad = getIwadFilename(iwad.value) ?? `${iwad.value}.wad`;
-  const parts = [enginePath, "-iwad", iwadFile(detectedIwad), "-file", commandFilePath.value, ...cleanedArgs.value];
-  return parts.map(quoteCommandToken).join(" ");
+  const extraGroups = rows.value
+    .map(row => rowsToTokens([row]))
+    .filter(tokens => tokens.length > 0);
+  return [[enginePath], ["-iwad", iwadFile(detectedIwad)], ["-file", commandFilePath.value], ...extraGroups];
+});
+
+const commandPreviewParts = computed(() => commandPreviewGroups.value.flat().map(quoteCommandToken));
+
+// The copy action must remain a single argv-compatible line. The preview is
+// only formatted for reading, using shell continuations between argument rows.
+const commandPreview = computed(() => commandPreviewParts.value.join(" "));
+const commandPreviewDisplay = computed(() => {
+  const lines = commandPreviewGroups.value
+    .map((group, index) => `${index > 0 ? "  " : ""}${group.map(quoteCommandToken).join(" ")}`);
+  return lines.map((line, index) => index < lines.length - 1 ? `${line} \\` : line).join("\n");
 });
 
 const copiedCommand = ref(false);
@@ -406,7 +419,7 @@ async function onSubmit() {
         <p v-else-if="inspecting" class="text-xs text-zinc-500">Inspecting file…</p>
         <p v-else-if="inspectionSummary" class="text-xs text-zinc-400">Detected: {{ inspectionSummary }}</p>
 
-        <label v-if="!editing && sourcePath" class="flex items-center gap-2 pt-1">
+        <label v-if="!editing && sourcePath && !pickedZip" class="flex items-center gap-2 pt-1">
           <input
             type="checkbox"
             v-model="copyToLibrary"
@@ -414,6 +427,9 @@ async function onSubmit() {
           />
           <span class="text-sm text-zinc-300">Copy file to library</span>
         </label>
+        <p v-else-if="!editing && pickedZip" class="pt-1 text-xs text-zinc-500">
+          ZIP archive will be extracted to the library so the contained WAD/PK3 can be launched.
+        </p>
 
         <img v-if="titlepicPreviewUrl" :src="titlepicPreviewUrl" alt="Title screen" class="mt-2 max-h-40 rounded border border-zinc-800" />
       </div>
@@ -757,7 +773,7 @@ async function onSubmit() {
             {{ copiedCommand ? "Copied" : "Copy" }}
           </button>
         </div>
-        <pre class="overflow-x-auto rounded border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-300">{{ commandPreview }}</pre>
+        <pre class="overflow-x-auto rounded border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-300">{{ commandPreviewDisplay }}</pre>
       </div>
     </div>
 

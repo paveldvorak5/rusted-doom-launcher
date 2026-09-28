@@ -5,15 +5,16 @@ import { useLibrary } from "./useLibrary";
 import { useDownload } from "./useDownload";
 import { useCustomWads } from "./useCustomWads";
 import { inspectGameFile, parseInfoText, type FileInspection, type Titlepic } from "../lib/wadInspect";
-import { findGameFileEntries, selectPrimaryGameFile, type ZipEntryInfo } from "../lib/zipExtract";
+import { findGameFileEntries, selectPrimaryGameFile, type GameFileEntry, type ZipEntryInfo } from "../lib/zipExtract";
 import { basenameOf, dirnameOf, stripExtension } from "../lib/platform";
 import { kebab, makeUniqueSlug } from "../lib/slug";
 
-/** Inner game file stream-extracted from a picked .zip at pick time. */
+/** Primary game file stream-extracted from a picked .zip for inspection. */
 export interface PickedZip {
   innerName: string;
   tempPath: string;
   size: number;
+  gameFiles: GameFileEntry[];
 }
 
 /** Result of inspecting a user-picked file: what to import plus best-effort
@@ -79,9 +80,9 @@ export function useCustomImport() {
   const { customWads, addCustomWad, updateCustomWad } = useCustomWads();
 
   /**
-   * Inspect a picked .wad/.pk3/.zip. For a .zip the inner game file is
-   * stream-extracted to a temp file so the same on-disk inspection path
-   * covers all picks. Throws on IWADs and unreadable files.
+   * Inspect a picked .wad/.pk3/.zip. For a .zip the selected primary game
+   * file is stream-extracted to a temp file so the same on-disk inspection
+   * path covers all picks. The complete bundle is extracted on import.
    */
   async function inspectPick(picked: string): Promise<InspectedPick> {
     const sourceBasename = basenameOf(picked);
@@ -101,7 +102,7 @@ export function useCustomImport() {
         zipPath: picked,
         entryPath: primary.path,
       });
-      pickedZip = { innerName, tempPath: innerPath, size: primary.size };
+      pickedZip = { innerName, tempPath: innerPath, size: primary.size, gameFiles };
 
       // Read any .txt carrying idgames-template fields (Title:/Authors:).
       // We scan all entries since "Beautiful Doom" style PK3s nest the .txt
@@ -159,16 +160,13 @@ export function useCustomImport() {
   }
 
   /**
-   * Import a picked file as a new custom entry. Three modes, branching on
-   * copyToLibrary + zip-pick:
-   *   A) copy=on,  bare .wad/.pk3 → fs::copy via import_custom_wad
-   *   B) copy=on,  .zip          → copy the pick-time temp extraction
-   *   C) copy=off, bare or zip   → reference the picked path in place;
-   *                                 nothing lands in the library folder.
+   * Import a picked file as a new custom entry. ZIP bundles are always
+   * extracted to the library: a generic ZIP is a distribution container,
+   * not a reliable GZDoom -file resource. Bare .wad/.pk3 files may instead
+   * be referenced in place when copyToLibrary is off.
    *
-   * When copy=off the launcher uses externalPath on the synthetic download
-   * record and never deletes the file on Remove. The picked .zip is fine
-   * to pass to GZDoom as -file (GZDoom can load archives directly).
+   * For an in-place bare file, the launcher uses externalPath on the
+   * synthetic download record and never deletes the source on Remove.
    */
   async function importCustomWad(opts: {
     sourcePath: string;
@@ -191,11 +189,30 @@ export function useCustomImport() {
     let actualSize: number;
     let externalPath = "";
     let externalFilename = "";
+    let additionalFilenames: string[] = [];
 
-    if (!copyToLibrary) {
+    if (pickedZip) {
+      const names = new Set<string>();
+      for (const file of pickedZip.gameFiles) {
+        if (names.has(file.name)) {
+          throw new Error(`ZIP contains more than one game file named "${file.name}". Extract it manually and choose the required file.`);
+        }
+        names.add(file.name);
+        if (await exists(wadFile(file.name))) {
+          throw new Error(`A file named "${file.name}" already exists in the library. Rename it or remove it before importing.`);
+        }
+      }
+      const extracted = await invoke<{ name: string; size: number }[]>("extract_game_files", {
+        zipPath: sourcePath,
+        destDir: libraryRoot,
+      });
+      const { primary, additional } = selectPrimaryGameFile(extracted);
+      actualSize = primary.size;
+      additionalFilenames = additional.map(file => file.name);
+    } else if (!copyToLibrary) {
       // External reference: pick the path GZDoom will actually launch with.
-      // For a .zip pick we point at the zip itself (no inner extraction);
-      // for a bare .wad/.pk3 we point at it directly.
+      // A ZIP cannot use this path: its selected game file must be extracted
+      // first so -file receives the WAD/PK3 itself.
       externalPath = sourcePath;
       externalFilename = basenameOf(sourcePath);
       // If the picked file can't even be stat'ed, the in-place reference is
@@ -207,14 +224,6 @@ export function useCustomImport() {
         throw new Error(`Can't read the picked file at ${sourcePath}: ${e}`);
       }
       actualSize = st.size;
-    } else if (pickedZip) {
-      if (!sourceIsTarget && await exists(targetPath)) {
-        throw new Error(`A file named "${sourceFilename}" already exists in the library. Rename it or remove it before importing.`);
-      }
-      actualSize = await invoke<number>("import_custom_wad", {
-        sourcePath: pickedZip.tempPath,
-        targetPath,
-      });
     } else if (sourceIsTarget) {
       const st = await stat(targetPath);
       actualSize = st.size;
@@ -261,6 +270,7 @@ export function useCustomImport() {
     await registerSyntheticDownload(slug, {
       filename: recordedFilename,
       wadFilename: recordedFilename,
+      additionalFilenames,
       size: actualSize,
       externalPath,
     });

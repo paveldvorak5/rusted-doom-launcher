@@ -191,9 +191,11 @@ function activeModPaths(launchedSlug: string): string[] {
   const knownSlugs = new Set(wads.value.map(w => w.slug));
   return settings.value.activeMods
     .filter(s => s !== launchedSlug && knownSlugs.has(s) && isDownloaded(s))
-    .map(s => {
+    .flatMap(s => {
       const info = getDownloadInfo(s);
-      return info ? lib.wadFile(info.wadFilename ?? info.filename) : null;
+      if (!info) return [];
+      const primary = info.externalPath || lib.wadFile(info.wadFilename ?? info.filename);
+      return [...info.additionalFilenames.map(lib.wadFile), primary];
     })
     .filter((p): p is string => !!p);
 }

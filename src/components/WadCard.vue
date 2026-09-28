@@ -12,8 +12,11 @@ import { getWadLinks } from "../lib/wadLinks";
 import { useRemoteImage } from "../composables/useRemoteImage";
 import { useWadRatings } from "../composables/useWadRatings";
 import WadRating from "./WadRating.vue";
+import ArchiveViewer from "./ArchiveViewer.vue";
+import { useLibrary } from "../composables/useLibrary";
 
-const { isDownloaded: checkDownloaded } = useDownload();
+const { isDownloaded: checkDownloaded, getDownloadInfo } = useDownload();
+const { wadFile } = useLibrary();
 const { getCachedPlaySummary } = useStats();
 const { loadLevelNames, getCachedLevelNames, getLevelDisplayName } = useLevelNames();
 const { getRating, setRating } = useWadRatings();
@@ -76,6 +79,14 @@ function playLevel(levelname: string) {
 // State
 const showStatsModal = ref(false);
 const levelNamesLoaded = ref(false);
+const showArchiveViewer = ref(false);
+
+const archivePath = computed(() => {
+  const info = getDownloadInfo(props.wad.slug);
+  if (!info) return "";
+  const path = info.externalPath || wadFile(info.filename);
+  return /\.(zip|pk3)$/i.test(path) ? path : "";
+});
 
 // Get thumbnail image URL (prefer dedicated thumbnail, fall back to first screenshot)
 const thumbnailUrl = computed(() => {
@@ -193,6 +204,12 @@ watch(showStatsModal, async (isOpen) => {
             @play="emit('play', wad)"
           />
           <button
+            v-if="archivePath"
+            class="rounded bg-zinc-700 px-2 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-600 hover:text-zinc-100"
+            title="View archive files"
+            @click="showArchiveViewer = true"
+          >Files</button>
+          <button
             v-if="wad._source === 'custom'"
             class="rounded bg-zinc-700 px-2 py-1.5 text-zinc-400 transition-colors hover:bg-zinc-600 hover:text-zinc-100"
             @click="emit('edit', wad)"
@@ -217,6 +234,13 @@ watch(showStatsModal, async (isOpen) => {
       </div>
     </div>
   </div>
+
+  <ArchiveViewer
+    :open="showArchiveViewer"
+    :archive-path="archivePath"
+    :title="wad.title"
+    @close="showArchiveViewer = false"
+  />
 
   <!-- Stats Modal -->
   <Teleport to="body">

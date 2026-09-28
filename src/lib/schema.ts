@@ -75,6 +75,9 @@ export const LauncherDownloadsSchema = z.object({
   downloads: z.record(z.string(), z.object({
     filename: z.string().min(1),
     wadFilename: z.string().optional(),
+    // Other WAD/PK3 files extracted from the same ZIP. They are loaded before
+    // wadFilename so a package's main file can override its resources.
+    additionalFilenames: z.array(z.string().min(1)).default([]),
     downloadedAt: z.iso.datetime(),
     size: z.number().int().nonnegative(),
     // When set, the actual file lives outside the library and we should

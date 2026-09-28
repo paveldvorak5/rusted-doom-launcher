@@ -55,6 +55,7 @@ const migratedIwadsBySource = computed(() => {
 
 const errorMsg = ref("");
 const engineVersion = ref<string | null>(null);
+const enginePathInput = ref("");
 const hasInnoextract = ref(false);
 const gogImporting = ref(false);
 const gogImportResult = ref<{ success: boolean; message: string } | null>(null);
@@ -75,6 +76,11 @@ async function fetchEngineVersion() {
 // Fetch version when component mounts and when path changes
 onMounted(fetchEngineVersion);
 watch(() => settings.value.gzdoomPath, fetchEngineVersion);
+watch(
+  () => settings.value.gzdoomPath,
+  path => { enginePathInput.value = path ?? ""; },
+  { immediate: true },
+);
 
 // Check innoextract availability
 async function checkInnoextractAvailability() {
@@ -139,16 +145,36 @@ async function browseAndImportGOG() {
   }
 }
 
+async function setEnginePath(path: string) {
+  const trimmedPath = path.trim();
+  const appName = trimmedPath.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+  if (!appName.includes("gzdoom") && !appName.includes("uzdoom")) {
+    errorMsg.value = `"${appName || trimmedPath}" doesn't appear to be a Doom engine. Please enter the path to a UZDoom/GZDoom executable.`;
+    return;
+  }
+
+  // Derive executable name from app name (e.g., UZDoom.app -> uzdoom).
+  const execName = appName.replace(".app", "").toLowerCase();
+  const execPath = trimmedPath.endsWith(".app") ? `${trimmedPath}/Contents/MacOS/${execName}` : trimmedPath;
+  await setGZDoomPath(execPath);
+  errorMsg.value = "";
+}
+
+async function saveEnginePath() {
+  await setEnginePath(enginePathInput.value);
+}
+
 async function browseGZDoom() {
   const os = getOs();
   const macFilter = { name: "Mac Application", extensions: ["app"] };
   const winFilter = { name: "Windows Executable", extensions: ["exe"] };
-  const anyFilter = { name: "Any", extensions: ["*"] };
   const filters = os === "mac"
-    ? [macFilter, winFilter, anyFilter]
+    ? [macFilter, winFilter]
     : os === "win"
-      ? [winFilter, macFilter, anyFilter]
-      : [anyFilter, macFilter, winFilter];
+      ? [winFilter, macFilter]
+      // Linux executables normally have no extension. A wildcard file filter
+      // can hide them in the native GTK chooser, so leave it unfiltered.
+      : undefined;
   const selected = await openDialog({
     title: "Select Doom Engine (UZDoom or GZDoom)",
     filters,
@@ -157,16 +183,7 @@ async function browseGZDoom() {
   });
   if (selected) {
     const path = typeof selected === "string" ? selected : selected[0];
-    const appName = path.split(/[\\/]/).pop()?.toLowerCase() ?? "";
-    if (!appName.includes("gzdoom") && !appName.includes("uzdoom")) {
-      errorMsg.value = `"${appName}" doesn't appear to be a Doom engine. Please select UZDoom/GZDoom executable.`;
-      return;
-    }
-    // Derive executable name from app name (e.g., UZDoom.app -> uzdoom)
-    const execName = appName.replace(".app", "").toLowerCase();
-    const execPath = path.endsWith(".app") ? `${path}/Contents/MacOS/${execName}` : path;
-    await setGZDoomPath(execPath);
-    errorMsg.value = "";
+    await setEnginePath(path);
   }
 }
 
@@ -250,6 +267,21 @@ function getEngineName(path: string | null): string {
             Browse
           </button>
         </div>
+        <form class="mt-3 flex gap-2" @submit.prevent="saveEnginePath">
+          <input
+            v-model="enginePathInput"
+            type="text"
+            class="min-w-0 flex-1 rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none ring-1 ring-zinc-700 placeholder:text-zinc-500 focus:ring-2 focus:ring-red-700"
+            placeholder="Enter full path to uzdoom or gzdoom"
+            aria-label="Doom engine path"
+          />
+          <button
+            type="submit"
+            class="rounded bg-zinc-700 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-600"
+          >
+            Save Path
+          </button>
+        </form>
       </div>
 
       <!-- Data Folder -->
