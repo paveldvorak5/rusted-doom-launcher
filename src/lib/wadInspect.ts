@@ -129,7 +129,7 @@ function decodeDoomPicture(data: Uint8Array): { rgb: Uint8Array; width: number; 
         if (y >= 0 && y < height) {
           const idx = data[i + n];
           const base = (y * width + x) * 3;
-          rgb[base + 0] = palette[idx * 3 + 0];
+          rgb[base] = palette[idx * 3];
           rgb[base + 1] = palette[idx * 3 + 1];
           rgb[base + 2] = palette[idx * 3 + 2];
         }
@@ -148,7 +148,7 @@ async function encodeRgbToPng(rgb: Uint8Array, width: number, height: number): P
   if (!ctx) throw new Error("OffscreenCanvas 2D context unavailable");
   const imageData = ctx.createImageData(width, height);
   for (let i = 0; i < width * height; i++) {
-    imageData.data[i * 4 + 0] = rgb[i * 3 + 0];
+    imageData.data[i * 4] = rgb[i * 3];
     imageData.data[i * 4 + 1] = rgb[i * 3 + 1];
     imageData.data[i * 4 + 2] = rgb[i * 3 + 2];
     imageData.data[i * 4 + 3] = 255;

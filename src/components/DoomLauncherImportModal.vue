@@ -482,55 +482,55 @@ function handleDone() {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label class="flex items-center gap-2.5 p-3 rounded-lg bg-zinc-950 border border-zinc-800 cursor-pointer hover:border-zinc-700 transition-colors">
               <input v-model="importMetadata" type="checkbox" class="rounded accent-red-600 w-4 h-4" />
-              <div class="flex items-center gap-2 text-sm text-zinc-200">
+              <span class="flex items-center gap-2 text-sm text-zinc-200">
                 <FileCheck :size="16" class="text-blue-400" />
                 <span>WAD Metadata</span>
-              </div>
+              </span>
             </label>
 
             <label class="flex items-center gap-2.5 p-3 rounded-lg bg-zinc-950 border border-zinc-800 cursor-pointer hover:border-zinc-700 transition-colors">
               <input v-model="importTags" type="checkbox" class="rounded accent-red-600 w-4 h-4" />
-              <div class="flex items-center gap-2 text-sm text-zinc-200">
+              <span class="flex items-center gap-2 text-sm text-zinc-200">
                 <Tag :size="16" class="text-yellow-400" />
                 <span>Categories & Tags</span>
-              </div>
+              </span>
             </label>
 
             <label class="flex items-center gap-2.5 p-3 rounded-lg bg-zinc-950 border border-zinc-800 cursor-pointer hover:border-zinc-700 transition-colors">
               <input v-model="importSaves" type="checkbox" class="rounded accent-red-600 w-4 h-4" />
-              <div class="flex items-center gap-2 text-sm text-zinc-200">
+              <span class="flex items-center gap-2 text-sm text-zinc-200">
                 <Save :size="16" class="text-purple-400" />
                 <span>Save Files (.zds)</span>
-              </div>
+              </span>
             </label>
 
             <label class="flex items-center gap-2.5 p-3 rounded-lg bg-zinc-950 border border-zinc-800 cursor-pointer hover:border-zinc-700 transition-colors">
               <input v-model="importStats" type="checkbox" class="rounded accent-red-600 w-4 h-4" />
-              <div class="flex items-center gap-2 text-sm text-zinc-200">
+              <span class="flex items-center gap-2 text-sm text-zinc-200">
                 <BarChart2 :size="16" class="text-emerald-400" />
                 <span>Play Statistics</span>
-              </div>
+              </span>
             </label>
           </div>
 
           <div class="p-3 bg-zinc-950/60 border border-zinc-800 rounded-lg">
             <label class="flex items-center gap-2.5 cursor-pointer">
               <input v-model="copyToLibrary" type="checkbox" class="rounded accent-red-600 w-4 h-4" />
-              <div>
+              <span class="block">
                 <span class="text-sm font-medium text-zinc-200">Copy files into RDL library directory</span>
-                <p class="text-xs text-zinc-400 mt-0.5">
+                <span class="block text-xs text-zinc-400 mt-0.5">
                   When unchecked, WADs are launched directly from their original location (<code class="text-zinc-300">externalPath</code>).
-                </p>
-              </div>
+                </span>
+              </span>
             </label>
           </div>
 
           <label class="flex items-start gap-2.5 p-3 rounded-lg bg-zinc-950/60 border border-zinc-800 cursor-pointer hover:border-zinc-700 transition-colors">
             <input v-model="overwriteExisting" type="checkbox" class="mt-0.5 rounded accent-red-600 w-4 h-4" />
-            <div>
+            <span class="block">
               <span class="text-sm font-medium text-zinc-200">Overwrite existing imports</span>
-              <p class="text-xs text-zinc-400 mt-0.5">Off by default. Lets you restore a prior import; recognized catalog WADs are also adopted from Custom into the catalog.</p>
-            </div>
+              <span class="block text-xs text-zinc-400 mt-0.5">Off by default. Lets you restore a prior import; recognized catalog WADs are also adopted from Custom into the catalog.</span>
+            </span>
           </label>
 
           <div class="rounded-lg border border-amber-800/50 bg-amber-950/20 p-3 text-xs text-zinc-300">
