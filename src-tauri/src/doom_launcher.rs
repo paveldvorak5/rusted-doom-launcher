@@ -102,6 +102,10 @@ pub struct DoomLauncherImportOptions {
     pub copy_to_library: bool,
     #[serde(default)]
     pub overwrite_existing: bool,
+    /// Exact matches resolved against the bundled frontend catalog.  The Rust
+    /// backend deliberately does not read source-tree catalog files at runtime.
+    #[serde(default)]
+    pub catalog_matches: HashMap<i64, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +115,32 @@ pub struct ImportSummary {
     pub imported_saves: usize,
     pub imported_stats: usize,
     pub skipped: usize,
+}
+
+/// Move per-WAD user data when a former `custom-*` import is adopted by the
+/// bundled catalog. `rename` keeps files intact and is atomic on the library's
+/// filesystem. Existing target data wins, so a re-import cannot overwrite it.
+fn move_import_data(lib_root: &Path, from_slug: &str, to_slug: &str) -> Result<(), String> {
+    if from_slug == to_slug {
+        return Ok(());
+    }
+    for directory in ["saves", "stats", "sessions"] {
+        let source = lib_root.join(directory).join(from_slug);
+        let target = lib_root.join(directory).join(to_slug);
+        if source.exists() && !target.exists() {
+            fs::rename(&source, &target).map_err(|e| format!(
+                "Failed to move {} to {}: {}", source.display(), target.display(), e
+            ))?;
+        }
+    }
+    let source = lib_root.join("level-names").join(format!("{}.json", from_slug));
+    let target = lib_root.join("level-names").join(format!("{}.json", to_slug));
+    if source.exists() && !target.exists() {
+        fs::rename(&source, &target).map_err(|e| format!(
+            "Failed to move {} to {}: {}", source.display(), target.display(), e
+        ))?;
+    }
+    Ok(())
 }
 
 /// Normalizes Windows or Unix slashes to forward slashes for cross-platform processing.
@@ -959,6 +989,18 @@ pub fn execute_import(
         }
     }
 
+    let ratings_path = lib_root.join("wad-ratings.json");
+    let mut ratings_map: HashMap<String, serde_json::Value> = HashMap::new();
+    if let Ok(content) = fs::read_to_string(&ratings_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(ratings) = json.get("ratings").and_then(|r| r.as_object()) {
+                for (slug, rating) in ratings {
+                    ratings_map.insert(slug.clone(), rating.clone());
+                }
+            }
+        }
+    }
+
     let mut imported_games = 0;
     let mut imported_saves = 0;
     let mut imported_stats = 0;
@@ -991,15 +1033,36 @@ pub fn execute_import(
         // Re-running an import must not make duplicate entries. The verifier
         // produces stable slugs for a database, so an existing slug identifies
         // a game that has already been imported.
+        let final_slug = options.catalog_matches.get(&item.game_file_id)
+            .cloned()
+            .unwrap_or_else(|| item.slug.clone());
+        let is_catalog_match = final_slug != item.slug;
         let existing_index = existing_custom_wads
             .iter()
-            .position(|entry| entry.get("slug").and_then(|slug| slug.as_str()) == Some(item.slug.as_str()));
-        if existing_index.is_some() && !options.overwrite_existing {
+            .position(|entry| entry.get("slug").and_then(|slug| slug.as_str()) == Some(item.slug.as_str())
+                || entry.get("slug").and_then(|slug| slug.as_str()) == Some(final_slug.as_str()));
+        if (existing_index.is_some() || downloads_map.contains_key(&final_slug)) && !options.overwrite_existing {
             skipped += 1;
             continue;
         }
-        let final_slug = item.slug.clone();
         existing_slugs.insert(final_slug.clone());
+
+        // A prior import was written as custom before catalog matching existed.
+        // Adopt it now and retain all locally collected play data.
+        if is_catalog_match {
+            if let Some(index) = existing_index {
+                let old_slug = existing_custom_wads[index]
+                    .get("slug").and_then(|slug| slug.as_str()).unwrap_or(&item.slug).to_string();
+                move_import_data(lib_root, &old_slug, &final_slug)?;
+                existing_custom_wads.remove(index);
+                if let Some(rating) = ratings_map.remove(&old_slug) {
+                    ratings_map.entry(final_slug.clone()).or_insert(rating);
+                }
+                if let Some(download) = downloads_map.remove(&old_slug) {
+                    downloads_map.entry(final_slug.clone()).or_insert(download);
+                }
+            }
+        }
 
         // Handle copying vs external reference
         let file_size = fs::metadata(&source_file_path)
@@ -1079,7 +1142,7 @@ pub fn execute_import(
             "_source": "custom"
         });
 
-        if options.import_metadata {
+        if options.import_metadata && !is_catalog_match {
             if let Some(index) = existing_index {
                 existing_custom_wads[index] = custom_entry;
             } else {
@@ -1195,6 +1258,12 @@ pub fn execute_import(
     fs::write(&downloads_path, downloads_json)
         .map_err(|e| format!("Failed to write launcher-downloads.json: {}", e))?;
 
+    let ratings_obj = serde_json::json!({ "version": 1, "ratings": ratings_map });
+    let ratings_json = serde_json::to_string_pretty(&ratings_obj)
+        .map_err(|e| format!("Failed to serialize wad-ratings.json: {}", e))?;
+    fs::write(&ratings_path, ratings_json)
+        .map_err(|e| format!("Failed to write wad-ratings.json: {}", e))?;
+
     Ok(ImportSummary {
         imported_games,
         imported_tags,
@@ -1284,6 +1353,7 @@ mod tests {
                 import_stats: false,
                 copy_to_library: false,
                 overwrite_existing: false,
+                catalog_matches: HashMap::new(),
             },
         ).unwrap();
         assert_eq!(result.imported_games, 1);
@@ -1305,6 +1375,7 @@ mod tests {
                 import_stats: false,
                 copy_to_library: false,
                 overwrite_existing: false,
+                catalog_matches: HashMap::new(),
             },
         ).unwrap();
         assert_eq!(repeat_result.imported_games, 0);
@@ -1328,6 +1399,7 @@ mod tests {
                 import_stats: false,
                 copy_to_library: false,
                 overwrite_existing: true,
+                catalog_matches: HashMap::new(),
             },
         ).unwrap();
         assert_eq!(overwrite_result.imported_games, 1);
@@ -1336,6 +1408,34 @@ mod tests {
         ).unwrap();
         assert_eq!(custom_wads["entries"].as_array().unwrap().len(), 1);
         assert_eq!(custom_wads["entries"][0]["rating"], 4);
+
+        // A catalog match adopts an old custom import without retaining a
+        // duplicate custom entry, while keeping its downloaded file record.
+        let catalog_result = execute_import(
+            &library_dir,
+            DoomLauncherImportOptions {
+                db_path: db_file.to_string_lossy().to_string(),
+                source_root: "H:\\Games\\Doom\\DoomMods\\Games".to_string(),
+                target_root: temp_dir.to_string_lossy().to_string(),
+                selected_game_ids: Some(vec![10]),
+                import_metadata: true,
+                import_tags: true,
+                import_saves: false,
+                import_stats: false,
+                copy_to_library: false,
+                overwrite_existing: true,
+                catalog_matches: HashMap::from([(10, "sunlust".to_string())]),
+            },
+        ).unwrap();
+        assert_eq!(catalog_result.imported_games, 1);
+        let custom_wads: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(library_dir.join("custom-wads.json")).unwrap(),
+        ).unwrap();
+        assert!(custom_wads["entries"].as_array().unwrap().is_empty());
+        let downloads: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(library_dir.join("launcher-downloads.json")).unwrap(),
+        ).unwrap();
+        assert!(downloads["downloads"].get("sunlust").is_some());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

@@ -92,6 +92,7 @@ export function useCustomImport() {
     let innerPath = picked;
     let pickedZip: PickedZip | null = null;
     let zipSidecarText = "";
+    const zipReadmeUrls = new Set<string>();
 
     if (sourceExt === "zip") {
       const entries = await invoke<ZipEntryInfo[]>("list_zip_entries", { zipPath: picked });
@@ -114,6 +115,7 @@ export function useCustomImport() {
           entryPath: entry.path,
         });
         const text = new TextDecoder().decode(new Uint8Array(buf));
+        for (const url of parseInfoText(text).urls) zipReadmeUrls.add(url);
         if (/^\s*Title\s*:/im.test(text) || /^\s*Authors?\s*:/im.test(text)) {
           zipSidecarText = text;
           break;
@@ -134,12 +136,14 @@ export function useCustomImport() {
     let title = "";
     let author = inspection.author;
     let year = inspection.year;
+    const urls = new Set([...inspection.urls, ...zipReadmeUrls]);
 
     if (zipSidecarText) {
       const parsed = parseInfoText(zipSidecarText);
       if (parsed.author) author = parsed.author;
       if (parsed.year) year = parsed.year;
       if (parsed.title) title = parsed.title;
+      for (const url of parsed.urls) urls.add(url);
     } else if (sourceExt !== "zip") {
       try {
         const sibling = await invoke<string>("read_sibling_text", { sourcePath: picked });
@@ -148,6 +152,7 @@ export function useCustomImport() {
           if (!author && parsed.author) author = parsed.author;
           if (!year && parsed.year) year = parsed.year;
           if (parsed.title) title = parsed.title;
+          for (const url of parsed.urls) urls.add(url);
         }
       } catch (e) {
         console.warn("[useCustomImport] sibling .txt scan failed:", e);
@@ -155,6 +160,7 @@ export function useCustomImport() {
     }
 
     if (!title) title = inspection.firstMapTitle || stripExtension(innerName);
+    inspection.urls = [...urls];
 
     return { pickedZip, inspection, title, author, year };
   }
@@ -174,8 +180,9 @@ export function useCustomImport() {
     copyToLibrary: boolean;
     fields: CustomEntryFields;
     titlepic: Titlepic | null;
+    urls: string[];
   }): Promise<WadEntry> {
-    const { sourcePath, pickedZip, copyToLibrary, fields, titlepic } = opts;
+    const { sourcePath, pickedZip, copyToLibrary, fields, titlepic, urls } = opts;
 
     const libraryRoot = base();
     if (!libraryRoot) {
@@ -259,7 +266,7 @@ export function useCustomImport() {
       tags: fields.tags ?? [],
       rating: fields.rating ?? 0,
       difficulty: "unknown",
-      urls: [],
+      urls,
       notes: "",
       extraArgs: fields.extraArgs,
       _schemaVersion: 1,

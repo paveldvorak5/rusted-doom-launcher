@@ -380,6 +380,7 @@ async function onSubmit() {
       copyToLibrary: copyToLibrary.value,
       fields,
       titlepic: inspection.value?.titlepic ?? null,
+      urls: inspection.value?.urls ?? [],
     });
     emit("added", entry);
   } catch (e) {

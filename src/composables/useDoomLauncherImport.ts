@@ -92,6 +92,8 @@ export interface DoomLauncherImportOptions {
   import_stats: boolean;
   copy_to_library: boolean;
   overwrite_existing: boolean;
+  /** GameFileID -> bundled catalog slug, for exact matches resolved by the UI. */
+  catalog_matches?: Record<number, string>;
 }
 
 export interface ImportSummary {

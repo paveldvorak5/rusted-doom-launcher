@@ -7,6 +7,14 @@ import { getWadLinks } from "../lib/wadLinks";
 const props = defineProps<{ wad: WadEntry }>();
 
 const links = computed(() => getWadLinks(props.wad));
+
+async function openLink(url: string) {
+  try {
+    await open(url);
+  } catch (error) {
+    console.error("[WadLinks] Failed to open external link:", url, error);
+  }
+}
 </script>
 
 <template>
@@ -15,7 +23,7 @@ const links = computed(() => getWadLinks(props.wad));
       v-for="link in links"
       :key="link.label"
       class="whitespace-nowrap rounded border border-zinc-700 px-1.5 py-0.5 text-[11px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200"
-      @click.stop="open(link.url)"
+      @click.stop="openLink(link.url)"
     >
       {{ link.label }}
     </button>

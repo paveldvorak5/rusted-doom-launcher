@@ -19,6 +19,8 @@ import {
 import { useDoomLauncherImport } from "../composables/useDoomLauncherImport";
 import { useSettings } from "../composables/useSettings";
 import { useCustomWads } from "../composables/useCustomWads";
+import { catalogWads } from "../composables/useWads";
+import { findCatalogMatch } from "../lib/catalogMatch";
 import { kebab } from "../lib/slug";
 
 const props = defineProps<{
@@ -160,6 +162,11 @@ const importSlugs = computed(() => {
   const slugs = new Map<number, string>();
   const used = new Set<string>();
   for (const game of inspection.value?.games_preview ?? []) {
+    const catalog = findCatalogMatch(catalogWads, game.title, game.filename);
+    if (catalog) {
+      slugs.set(game.id, catalog.slug);
+      continue;
+    }
     const filename = game.filename.replace(/\\/g, "/").split("/").pop() ?? "";
     const base = kebab(game.title) || kebab(filename) || `dl-game-${game.id}`;
     let slug = `custom-${base}`;
@@ -171,9 +178,22 @@ const importSlugs = computed(() => {
   return slugs;
 });
 
-function alreadyImported(game: { id: number }): boolean {
+const catalogMatches = computed(() => Object.fromEntries(
+  (inspection.value?.games_preview ?? []).flatMap(game => {
+    const match = findCatalogMatch(catalogWads, game.title, game.filename);
+    return match ? [[game.id, match.slug]] : [];
+  }),
+));
+
+function alreadyImported(game: { id: number; title: string }): boolean {
   const slug = importSlugs.value.get(game.id);
-  return !!slug && customWads.value.some(wad => wad.slug === slug);
+  if (slug && customWads.value.some(wad => wad.slug === slug)) return true;
+  // Imports created by older app versions used a custom slug even when the
+  // title is now recognized by the catalog. Keep them disabled by default;
+  // enabling overwrite performs the safe catalog adoption in the backend.
+  return !!catalogMatches.value[game.id] && customWads.value.some(wad =>
+    wad._source === "custom" && wad.title.trim().toLocaleLowerCase() === game.title.trim().toLocaleLowerCase(),
+  );
 }
 
 function selectableGameIds(): number[] {
@@ -182,7 +202,7 @@ function selectableGameIds(): number[] {
     .map(game => game.id);
 }
 
-function canImport(game: { id: number }): boolean {
+function canImport(game: { id: number; title: string }): boolean {
   return overwriteExisting.value || !alreadyImported(game);
 }
 
@@ -232,6 +252,7 @@ async function runImport() {
     import_stats: importStats.value,
     copy_to_library: copyToLibrary.value,
     overwrite_existing: overwriteExisting.value,
+    catalog_matches: catalogMatches.value,
   };
 
   const res = await executeImport(options);
@@ -508,7 +529,7 @@ function handleDone() {
             <input v-model="overwriteExisting" type="checkbox" class="mt-0.5 rounded accent-red-600 w-4 h-4" />
             <div>
               <span class="text-sm font-medium text-zinc-200">Overwrite existing imports</span>
-              <p class="text-xs text-zinc-400 mt-0.5">Off by default. Lets you select a previously imported WAD to restore its metadata, file, saves, and statistics from DoomLauncher.</p>
+              <p class="text-xs text-zinc-400 mt-0.5">Off by default. Lets you restore a prior import; recognized catalog WADs are also adopted from Custom into the catalog.</p>
             </div>
           </label>
 
