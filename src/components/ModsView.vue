@@ -8,6 +8,7 @@ import { useSettings } from "../composables/useSettings";
 import { fetchImageDataUrl } from "../composables/useRemoteImage";
 import DownloadPlayButton from "./DownloadPlayButton.vue";
 import WadRating from "./WadRating.vue";
+import WadLinks from "./WadLinks.vue";
 import { useWadRatings } from "../composables/useWadRatings";
 import AddCustomTile from "./AddCustomTile.vue";
 
@@ -173,6 +174,7 @@ const filteredWads = computed(() => {
             </h3>
             <p class="truncate text-sm text-zinc-400">{{ authorsLine(wad) }}</p>
             <WadRating class="mt-1" :rating="getRating(wad.slug, wad.rating)" @change="updateRating(wad.slug, $event)" />
+            <WadLinks class="mt-2" :wad="wad" />
 
             <div class="mt-3 flex gap-2">
               <template v-if="checkDownloaded(wad.slug)">
